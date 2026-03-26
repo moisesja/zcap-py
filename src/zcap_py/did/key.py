@@ -3,11 +3,15 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 from multiformats import multibase, multicodec
 
-from zcap_py.did.url import parse_did, parse_did_url
+from zcap_py.did.url import parse_did, parse_did_url, strip_did_fragment
 from zcap_py.exceptions import DidParseError
+
+if TYPE_CHECKING:
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 
 ED25519_PUB_KEY_LENGTH: int = 32
 
@@ -85,3 +89,22 @@ def resolve_did_key(did_or_url: str) -> VerificationMethod:
         controller=base_did,
         public_key_multibase=multibase_key,
     )
+
+
+def public_key_from_did_key(did_or_url: str) -> Ed25519PublicKey:
+    """Resolve a did:key DID or DID URL to an Ed25519PublicKey object.
+
+    Combines ``decode_did_key`` with ``Ed25519PublicKey.from_public_bytes``
+    for convenience.  Used internally by proof verification to bind the
+    signature to the key claimed in ``proof.verificationMethod``.
+
+    Raises:
+        DidParseError: If the DID is malformed or not Ed25519.
+    """
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import (
+        Ed25519PublicKey as _Ed25519PublicKey,
+    )
+
+    bare_did = strip_did_fragment(did_or_url)
+    raw_bytes = decode_did_key(bare_did)
+    return _Ed25519PublicKey.from_public_bytes(raw_bytes)

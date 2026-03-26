@@ -7,37 +7,45 @@ from typing import TYPE_CHECKING
 from cryptography.exceptions import InvalidSignature
 
 from zcap_py.crypto.multibase import base58btc_decode
-
-if TYPE_CHECKING:
-    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
+from zcap_py.did.key import public_key_from_did_key
 from zcap_py.exceptions import (
+    DidParseError,
     ProofError,
     SignatureVerificationError,
     UnsupportedProofTypeError,
 )
 from zcap_py.jcs.canonicalize import canonicalize
 
+if TYPE_CHECKING:
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
+
 PROOF_TYPE = "Ed25519Signature2020"
 ED25519_SIGNATURE_LENGTH = 64
 
 
-def verify_document_proof(
-    document: dict[str, object],
-    public_key: Ed25519PublicKey,
-) -> None:
+def verify_document_proof(document: dict[str, object]) -> None:
     """Verify the Ed25519Signature2020 proof on a document.
+
+    Resolves the public key from ``proof.verificationMethod`` (key binding),
+    then verifies the Ed25519 signature against the JCS-canonicalized
+    document payload.
 
     Per FR-PROOF-02: extract proof, remove proofValue from proof copy,
     merge proof copy back into document, JCS-canonicalize, verify signature.
 
+    Per FR-PROOF-03: proof.verificationMethod must be a valid DID URL
+    encoding an Ed25519 public key.
+
     Raises:
-        ProofError: If proof structure is malformed.
+        ProofError: If proof structure is malformed or verificationMethod
+            cannot be resolved.
         UnsupportedProofTypeError: If proof type is not Ed25519Signature2020.
         SignatureVerificationError: If signature verification fails.
     """
     proof = _extract_proof(document)
     _validate_proof_type(proof)
     sig_bytes = _decode_proof_value(proof)
+    public_key = _resolve_verification_key(proof)
 
     # Build verification payload: document with proof copy minus proofValue
     proof_copy = {k: v for k, v in proof.items() if k != "proofValue"}
@@ -96,3 +104,28 @@ def _decode_proof_value(proof: dict[str, object]) -> bytes:
             context={"length": len(decoded)},
         )
     return decoded
+
+
+def _resolve_verification_key(proof: dict[str, object]) -> Ed25519PublicKey:
+    """Resolve the Ed25519 public key from proof.verificationMethod.
+
+    Binds the proof to the key claimed in verificationMethod — prevents
+    accepting a signature from key B when verificationMethod names key A.
+
+    Raises:
+        ProofError: If verificationMethod is missing, empty, or does not
+            encode a valid Ed25519 did:key.
+    """
+    vm = proof.get("verificationMethod")
+    if not isinstance(vm, str) or not vm.strip():
+        raise ProofError(
+            "proof.verificationMethod is missing or empty",
+            context={"verificationMethod": vm},
+        )
+    try:
+        return public_key_from_did_key(vm)
+    except DidParseError as e:
+        raise ProofError(
+            f"Cannot resolve public key from verificationMethod: {vm}",
+            context={"verificationMethod": vm},
+        ) from e

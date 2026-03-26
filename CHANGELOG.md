@@ -24,7 +24,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `is_root()` static method
   - Proof sub-field validation: type, verificationMethod (valid DID URL), created (ISO 8601), proofValue (multibase-z, 64-byte Ed25519 signature)
   - All parse errors carry `field` attribute for programmatic error handling (FR-PARSE-09)
+- `public_key_from_did_key()` convenience function — resolves a `did:key` DID or DID URL to an `Ed25519PublicKey` object
 - New dependency: `rfc8785>=0.1.4` (zero-dep, Apache 2.0, Trail of Bits)
+
+### Changed
+
+- **BREAKING:** `verify_document_proof()` no longer accepts a `public_key` parameter — the public key is now resolved automatically from `proof.verificationMethod` (key binding). This fixes a vulnerability where a document signed by key B but claiming key A in `verificationMethod` would be accepted if the caller supplied key B
+
+### Security
+
+- Fixed key-binding vulnerability in `verify_document_proof()` — the function now resolves and verifies against the key encoded in `proof.verificationMethod` rather than trusting a caller-supplied key
 
 ## [0.1.1] - 2026-03-26
 

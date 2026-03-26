@@ -203,14 +203,14 @@ signature = keypair.private_key.sign(canonicalize(to_sign))
 proof = {**proof_metadata, "proofValue": base58btc_encode(signature)}
 signed_document = {**document_body, "proof": proof}
 
-# Verify — returns None on success, raises on failure
-verify_document_proof(signed_document, keypair.public_key)
+# Verify — resolves the public key from proof.verificationMethod automatically
+verify_document_proof(signed_document)
 
 # Tampered document raises SignatureVerificationError
 tampered = {**signed_document, "invocationTarget": "https://evil.example.com"}
 tampered["proof"] = signed_document["proof"]
 try:
-    verify_document_proof(tampered, keypair.public_key)
+    verify_document_proof(tampered)
 except SignatureVerificationError as e:
     print(e.message)  # "Ed25519 signature verification failed"
 ```

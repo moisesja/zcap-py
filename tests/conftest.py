@@ -42,3 +42,26 @@ def make_signed_document(
     pv = make_proof_value(document_without_proof, proof_metadata, private_key)
     proof: dict[str, object] = {**proof_metadata, "proofValue": pv}
     return {**document_without_proof, "proof": proof}
+
+
+def make_misbound_document(
+    document_without_proof: dict[str, object],
+    signing_key: Ed25519PrivateKey,
+    claimed_verification_method: str,
+    proof_purpose: str = "capabilityDelegation",
+) -> dict[str, object]:
+    """Produce a document signed by *signing_key* but claiming a
+    different identity in ``verificationMethod``.
+
+    This creates the exact attack scenario where the proof's
+    verificationMethod DID does NOT match the actual signer.
+    """
+    proof_metadata: dict[str, object] = {
+        "type": "Ed25519Signature2020",
+        "verificationMethod": claimed_verification_method,
+        "created": "2026-01-01T00:00:00Z",
+        "proofPurpose": proof_purpose,
+    }
+    pv = make_proof_value(document_without_proof, proof_metadata, signing_key)
+    proof: dict[str, object] = {**proof_metadata, "proofValue": pv}
+    return {**document_without_proof, "proof": proof}
