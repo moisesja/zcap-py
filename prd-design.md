@@ -1,4 +1,5 @@
 # PRD & Design Document — `zcap-py`
+
 ### Authorization Capabilities for Linked Data — Python Reference Implementation
 
 **Version:** 0.1.0  
@@ -14,21 +15,21 @@
 
 ## 1. Purpose & Scope
 
-`zcap-py` is a minimal, production-quality Python library implementing the **W3C Authorization Capabilities for Linked Data (ZCAP-LD)** draft specification. It is the Python counterpart to `zcap-dotnet` and shares the same semantic model, fixture schema, and exception taxonomy — enabling cross-language test parity.
+`zcap-py` is a minimal, production-quality Python library implementing the **[W3C Authorization Capabilities for Linked Data (ZCAP-LD)]https://w3c-ccg.github.io/zcap-spec/)** draft specification. It is the Python counterpart to `zcap-dotnet` and shares the same semantic model, fixture schema, and exception taxonomy — enabling cross-language test parity.
 
 The library is scoped to the **verifiable security kernel**: key derivation, canonicalization, proof generation/verification, capability delegation chain verification, and invocation verification. It explicitly defers full JSON-LD context processing, multi-method DID support, and transport concerns.
 
 ### 1.1 Goals
 
-| # | Goal |
-|---|------|
-| G1 | Implement the ZCAP-LD delegation and invocation verification lifecycle as defined by the W3C draft |
-| G2 | Be the canonical Python fixture consumer for cross-language test parity with `zcap-dotnet` (fixtures live in `zcap-ld-fixtures`) |
-| G3 | Maintain a strict, auditable exception hierarchy — malformed input never causes raw crashes |
-| G4 | Provide a caveat plugin mechanism without polluting the core verification logic |
-| G5 | Remain dependency-minimal and pure-Python verifiable |
-| G6 | Be consumable by TurtleShell.id's Sovereign Vault Python agents and future gRPC trust anchors |
-| G7 | Expose both synchronous and asynchronous verification APIs (`ZcapVerifier` and `AsyncZcapVerifier`) |
+| #   | Goal                                                                                                                             |
+| --- | -------------------------------------------------------------------------------------------------------------------------------- |
+| G1  | Implement the ZCAP-LD delegation and invocation verification lifecycle as defined by the W3C draft                               |
+| G2  | Be the canonical Python fixture consumer for cross-language test parity with `zcap-dotnet` (fixtures live in `zcap-ld-fixtures`) |
+| G3  | Maintain a strict, auditable exception hierarchy — malformed input never causes raw crashes                                      |
+| G4  | Provide a caveat plugin mechanism without polluting the core verification logic                                                  |
+| G5  | Remain dependency-minimal and pure-Python verifiable                                                                             |
+| G6  | Be consumable by TurtleShell.id's Sovereign Vault Python agents and future gRPC trust anchors                                    |
+| G7  | Expose both synchronous and asynchronous verification APIs (`ZcapVerifier` and `AsyncZcapVerifier`)                              |
 
 ### 1.2 Non-Goals (Deferred or Out-of-Scope)
 
@@ -40,8 +41,8 @@ The library is scoped to the **verifiable security kernel**: key derivation, can
 - HTTP-layer invocation transport
 - Revocation checking
 - W3C ZCAP-LD test suite runner (can be added later as separate package)
-- **Capability document signing and construction** — this is the responsibility of the companion package `zcap-py-builder`. The core `zcap-py` is a *verification-only* library
-- **Fixture file generation** — generation scripts live in `zcap-ld-fixtures`; `zcap-py` only *consumes* them in tests
+- **Capability document signing and construction** — this is the responsibility of the companion package `zcap-py-builder`. The core `zcap-py` is a _verification-only_ library
+- **Fixture file generation** — generation scripts live in `zcap-ld-fixtures`; `zcap-py` only _consumes_ them in tests
 
 ---
 
@@ -57,18 +58,22 @@ The root is the trust anchor. It is issued by the resource controller to themsel
 
 ```jsonc
 {
-  "@context": ["https://w3id.org/zcap/v1", "https://w3id.org/security/suites/ed25519-2020/v1"],
-  "id": "https://resource.example/capabilities/root",   // stable, dereferenceable URI
+  "@context": [
+    "https://w3id.org/zcap/v1",
+    "https://w3id.org/security/suites/ed25519-2020/v1",
+  ],
+  "id": "https://resource.example/capabilities/root", // stable, dereferenceable URI
   "type": "Authorization",
-  "controller": "<root controller DID>",                // the resource owner
+  "controller": "<root controller DID>", // the resource owner
   "invocationTarget": "https://resource.example/api/", // the resource being protected
-  "allowedAction": ["read", "write"],                   // full authority set at root
+  "allowedAction": ["read", "write"], // full authority set at root
   // NO parentCapability — this IS the root
   // NO proof — root trust is established out-of-band by the caller
 }
 ```
 
 Key distinctions from a delegated capability:
+
 - `parentCapability` is **absent** (the spec treats the root's own `id` as its implicit parent reference)
 - No `proof` field — the verifier does not and cannot verify the root's own signature; the caller must establish root trust separately
 - `allowedAction` at root represents the complete action vocabulary; all delegations are subsets of this set
@@ -100,20 +105,23 @@ An invocation is presented by an invoker at runtime to exercise a capability. It
 
 ```jsonc
 {
-  "@context": ["https://w3id.org/zcap/v1", "https://w3id.org/security/suites/ed25519-2020/v1"],
+  "@context": [
+    "https://w3id.org/zcap/v1",
+    "https://w3id.org/security/suites/ed25519-2020/v1",
+  ],
   "id": "urn:uuid:<uuid>",
   "type": "Invocation",
-  "capability": "<capability id>",       // the leaf capability being exercised
-  "invocationTarget": "<URI>",           // must == capability.invocationTarget
+  "capability": "<capability id>", // the leaf capability being exercised
+  "invocationTarget": "<URI>", // must == capability.invocationTarget
   "proof": {
     "type": "Ed25519Signature2020",
     "verificationMethod": "<invoker DID>#<fragment>",
-    "capability": "<capability id>",     // must match body.capability
-    "capabilityAction": "read",          // must be ∈ capability.allowedAction
+    "capability": "<capability id>", // must match body.capability
+    "capabilityAction": "read", // must be ∈ capability.allowedAction
     "proofPurpose": "capabilityInvocation",
     "created": "2025-06-01T12:00:00Z",
-    "proofValue": "<multibase-z encoded Ed25519 signature>"
-  }
+    "proofValue": "<multibase-z encoded Ed25519 signature>",
+  },
 }
 ```
 
@@ -129,6 +137,7 @@ Root Capability
 ### 2.2 Why Python Now
 
 The `zcap-dotnet` library addresses the .NET ecosystem. A Python counterpart serves:
+
 - Agent-to-agent trust in AI pipelines (LangChain, CrewAI, MCP servers)
 - TurtleShell.id Sovereign Vault backend logic expressed in Python microservices
 - Fixture generation and cross-language parity validation
@@ -140,87 +149,87 @@ The `zcap-dotnet` library addresses the .NET ecosystem. A Python counterpart ser
 
 ### 3.1 Cryptography (FR-CRYPTO)
 
-| ID | Requirement |
-|----|-------------|
-| FR-CRYPTO-01 | Support **Ed25519** key generation using `cryptography>=41` (`Ed25519PrivateKey`, `Ed25519PublicKey`) |
-| FR-CRYPTO-02 | Support `did:key` encoding and decoding for Ed25519 keys only, using the `z6Mk...` multibase-multicodec prefix (`0xed01`) |
+| ID           | Requirement                                                                                                                                          |
+| ------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
+| FR-CRYPTO-01 | Support **Ed25519** key generation using `cryptography>=41` (`Ed25519PrivateKey`, `Ed25519PublicKey`)                                                |
+| FR-CRYPTO-02 | Support `did:key` encoding and decoding for Ed25519 keys only, using the `z6Mk...` multibase-multicodec prefix (`0xed01`)                            |
 | FR-CRYPTO-03 | Expose `generate_ed25519_keypair() -> (DidKeyPair)` returning a named dataclass containing `did`, `verification_method`, `private_key`, `public_key` |
-| FR-CRYPTO-04 | Verify Ed25519 signatures; raise `SignatureVerificationError` on failure |
-| FR-CRYPTO-05 | Encode/decode multibase `z` (base58btc) for key material and proof values |
+| FR-CRYPTO-04 | Verify Ed25519 signatures; raise `SignatureVerificationError` on failure                                                                             |
+| FR-CRYPTO-05 | Encode/decode multibase `z` (base58btc) for key material and proof values                                                                            |
 
 ### 3.2 DID URL Parsing (FR-DID)
 
-| ID | Requirement |
-|----|-------------|
-| FR-DID-01 | Parse and validate `did:key:<multibase>` DIDs |
-| FR-DID-02 | Parse and validate DID URLs of the form `did:key:<multibase>#<fragment>` |
+| ID        | Requirement                                                                                                                                                               |
+| --------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| FR-DID-01 | Parse and validate `did:key:<multibase>` DIDs                                                                                                                             |
+| FR-DID-02 | Parse and validate DID URLs of the form `did:key:<multibase>#<fragment>`                                                                                                  |
 | FR-DID-03 | Validate that the `#fragment` of a `did:key` verification method equals the DID's key identifier (i.e., `did == did_url.split('#')[0]` and fragment encodes the same key) |
-| FR-DID-04 | Raise `DidParseError` for any malformed DID or DID URL |
-| FR-DID-05 | Resolve a `did:key` DID URL to a `VerificationMethod` object without network I/O |
+| FR-DID-04 | Raise `DidParseError` for any malformed DID or DID URL                                                                                                                    |
+| FR-DID-05 | Resolve a `did:key` DID URL to a `VerificationMethod` object without network I/O                                                                                          |
 
 ### 3.3 Canonicalization (FR-JCS)
 
-| ID | Requirement |
-|----|-------------|
-| FR-JCS-01 | Implement RFC 8785 / JCS (JSON Canonicalization Scheme) natively |
-| FR-JCS-02 | Canonicalization must be deterministic across Python versions and OS platforms |
-| FR-JCS-03 | Canonicalize before signing and before verification — never operate on raw JSON strings |
-| FR-JCS-04 | Raise `CanonicalizationError` if input is not a valid JSON-serializable dict |
+| ID        | Requirement                                                                                                                                                                              |
+| --------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| FR-JCS-01 | Implement RFC 8785 / JCS (JSON Canonicalization Scheme) natively                                                                                                                         |
+| FR-JCS-02 | Canonicalization must be deterministic across Python versions and OS platforms                                                                                                           |
+| FR-JCS-03 | Canonicalize before signing and before verification — never operate on raw JSON strings                                                                                                  |
+| FR-JCS-04 | Raise `CanonicalizationError` if input is not a valid JSON-serializable dict                                                                                                             |
 | FR-JCS-05 | The JCS implementation must produce byte-for-byte identical output to the JavaScript `canonicalize` package and the C# `JsonCanonicalization` used in `zcap-dotnet` (fixture-verifiable) |
 
 ### 3.4 Proof Lifecycle (FR-PROOF)
 
-| ID | Requirement |
-|----|-------------|
-| FR-PROOF-01 | Generate `Ed25519Signature2020` proofs on arbitrary JSON-LD documents |
+| ID          | Requirement                                                                                                                                        |
+| ----------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| FR-PROOF-01 | Generate `Ed25519Signature2020` proofs on arbitrary JSON-LD documents                                                                              |
 | FR-PROOF-02 | Verification workflow: extract proof, remove `proofValue` from proof copy, merge proof copy back into document, JCS-canonicalize, verify signature |
-| FR-PROOF-03 | `proof.verificationMethod` must parse as a valid DID URL (FR-DID-02) |
-| FR-PROOF-04 | `proof.created` must be a valid ISO 8601 datetime string; raise `ProofError` if malformed |
-| FR-PROOF-05 | `proof.type` must equal `"Ed25519Signature2020"`; raise `UnsupportedProofTypeError` otherwise |
-| FR-PROOF-06 | `proofValue` must be a valid multibase-z base58btc string of exactly 64 bytes decoded; raise `ProofError` otherwise |
+| FR-PROOF-03 | `proof.verificationMethod` must parse as a valid DID URL (FR-DID-02)                                                                               |
+| FR-PROOF-04 | `proof.created` must be a valid ISO 8601 datetime string; raise `ProofError` if malformed                                                          |
+| FR-PROOF-05 | `proof.type` must equal `"Ed25519Signature2020"`; raise `UnsupportedProofTypeError` otherwise                                                      |
+| FR-PROOF-06 | `proofValue` must be a valid multibase-z base58btc string of exactly 64 bytes decoded; raise `ProofError` otherwise                                |
 
 ### 3.5 Capability Delegation Verification (FR-DELEG)
 
 The full delegation chain verification semantics:
 
-| ID | Requirement |
-|----|-------------|
-| FR-DELEG-01 | **Proof signer matches parent controller.** The `verificationMethod` DID (stripped of fragment) in the child's proof must equal the `controller` field of the parent capability. Raise `DelegationError` |
-| FR-DELEG-02 | **parentCapability linkage.** `child.parentCapability` must equal `parent.id`. Raise `DelegationError` |
-| FR-DELEG-03 | **allowedAction subset.** `child.allowedAction ⊆ parent.allowedAction`. Raise `ActionAttenuationError` |
-| FR-DELEG-04 | **expires attenuation.** If `child.expires` is set and `parent.expires` is set, `child.expires <= parent.expires`. If `parent.expires` is set and `child.expires` is absent, the child inherits parent expiry (not an error). If `child.expires` is set but `parent.expires` is absent, the child may restrict further. Raise `ExpiryAttenuationError` on violation |
+| ID          | Requirement                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| ----------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| FR-DELEG-01 | **Proof signer matches parent controller.** The `verificationMethod` DID (stripped of fragment) in the child's proof must equal the `controller` field of the parent capability. Raise `DelegationError`                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| FR-DELEG-02 | **parentCapability linkage.** `child.parentCapability` must equal `parent.id`. Raise `DelegationError`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| FR-DELEG-03 | **allowedAction subset.** `child.allowedAction ⊆ parent.allowedAction`. Raise `ActionAttenuationError`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| FR-DELEG-04 | **expires attenuation.** If `child.expires` is set and `parent.expires` is set, `child.expires <= parent.expires`. If `parent.expires` is set and `child.expires` is absent, the child inherits parent expiry (not an error). If `child.expires` is set but `parent.expires` is absent, the child may restrict further. Raise `ExpiryAttenuationError` on violation                                                                                                                                                                                                                                                                                            |
 | FR-DELEG-05 | **invocationTarget attenuation.** By default, `child.invocationTarget` must equal `parent.invocationTarget` exactly. When `allow_target_attenuation=True` is set on the verifier, a registered `InvocationTargetAttenuator` is consulted. The built-in attenuator follows the same path-prefix narrowing rules as `zcap-dotnet`: (a) scheme and authority (`scheme://host:port`) must be identical; (b) child path must begin with parent path, after normalizing trailing slashes; (c) query string and fragment narrowing is permitted; (d) broadening (child target outside parent path) is always rejected. Raise `InvocationTargetError` on any violation |
-| FR-DELEG-06 | Verify the child capability's cryptographic proof (FR-PROOF) |
-| FR-DELEG-07 | Support **chain verification**: given a root capability and an ordered list of delegated capabilities, verify the full chain from root to leaf. The root capability is implicitly trusted (caller responsibility); only chain links are verified |
-| FR-DELEG-08 | Raise `ChainVerificationError` wrapping the underlying cause if chain verification fails at any link |
+| FR-DELEG-06 | Verify the child capability's cryptographic proof (FR-PROOF)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| FR-DELEG-07 | Support **chain verification**: given a root capability and an ordered list of delegated capabilities, verify the full chain from root to leaf. The root capability is implicitly trusted (caller responsibility); only chain links are verified                                                                                                                                                                                                                                                                                                                                                                                                               |
+| FR-DELEG-08 | Raise `ChainVerificationError` wrapping the underlying cause if chain verification fails at any link                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
 
 ### 3.6 Invocation Verification (FR-INVOKE)
 
-| ID | Requirement |
-|----|-------------|
-| FR-INVOKE-01 | **Capability reference.** `invocation.proof.capability` must equal `capability.id`. Raise `InvocationError` |
-| FR-INVOKE-02 | **invocationTarget match.** `invocation.invocationTarget == capability.invocationTarget`. Raise `InvocationError` |
+| ID           | Requirement                                                                                                                                                                                         |
+| ------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| FR-INVOKE-01 | **Capability reference.** `invocation.proof.capability` must equal `capability.id`. Raise `InvocationError`                                                                                         |
+| FR-INVOKE-02 | **invocationTarget match.** `invocation.invocationTarget == capability.invocationTarget`. Raise `InvocationError`                                                                                   |
 | FR-INVOKE-03 | **Invoker identity.** The DID of `invocation.proof.verificationMethod` (stripped of fragment) must equal `capability.controller` (or `capability.invoker` if present). Raise `InvokerMismatchError` |
-| FR-INVOKE-04 | **Proof/body consistency.** `invocation.capability` (body field) must equal `invocation.proof.capability`. Raise `InvocationError` |
-| FR-INVOKE-05 | **capabilityAction check.** If `invocation.proof.capabilityAction` is set, it must be a member of `capability.allowedAction`. Raise `InvocationError` |
-| FR-INVOKE-06 | Verify the invocation's cryptographic proof (FR-PROOF) |
-| FR-INVOKE-07 | Run all registered `CaveatVerifier` plugins against the invocation; raise `CaveatError` if any fail |
+| FR-INVOKE-04 | **Proof/body consistency.** `invocation.capability` (body field) must equal `invocation.proof.capability`. Raise `InvocationError`                                                                  |
+| FR-INVOKE-05 | **capabilityAction check.** If `invocation.proof.capabilityAction` is set, it must be a member of `capability.allowedAction`. Raise `InvocationError`                                               |
+| FR-INVOKE-06 | Verify the invocation's cryptographic proof (FR-PROOF)                                                                                                                                              |
+| FR-INVOKE-07 | Run all registered `CaveatVerifier` plugins against the invocation; raise `CaveatError` if any fail                                                                                                 |
 
 ### 3.7 Document Parsing (FR-PARSE)
 
 Parsing of raw JSON dicts into typed models is the exclusive responsibility of `ZcapParser`. Models (`Capability`, `Invocation`) have **no** `from_dict()` classmethods. All deserialization paths flow through the parser, which owns validation of required fields, type coercion, and controlled error raising.
 
-| ID | Requirement |
-|----|-------------|
-| FR-PARSE-01 | `ZcapParser.parse_capability(raw: dict) -> Capability` — parse and validate a raw capability document; raise `ZcapParseError` on any structural violation |
-| FR-PARSE-02 | `ZcapParser.parse_invocation(raw: dict) -> Invocation` — parse and validate a raw invocation document |
-| FR-PARSE-03 | `ZcapParser.parse_capability_from_json(json_str: str) -> Capability` — convenience wrapper that decodes JSON string then delegates to FR-PARSE-01; raise `ZcapParseError` (never `json.JSONDecodeError`) |
-| FR-PARSE-04 | `ZcapParser.parse_invocation_from_json(json_str: str) -> Invocation` — same as above for invocations |
-| FR-PARSE-05 | Parser must validate: `id` is a non-empty string; `type` is the expected value; `controller` is a valid DID; `invocationTarget` is a non-empty URI string; `allowedAction` is a non-empty list of strings; `expires` parses as ISO 8601 UTC when present; `parentCapability` is a non-empty string **when present** (absence is valid for root capabilities) |
+| ID          | Requirement                                                                                                                                                                                                                                                                                                                                                                                 |
+| ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| FR-PARSE-01 | `ZcapParser.parse_capability(raw: dict) -> Capability` — parse and validate a raw capability document; raise `ZcapParseError` on any structural violation                                                                                                                                                                                                                                   |
+| FR-PARSE-02 | `ZcapParser.parse_invocation(raw: dict) -> Invocation` — parse and validate a raw invocation document                                                                                                                                                                                                                                                                                       |
+| FR-PARSE-03 | `ZcapParser.parse_capability_from_json(json_str: str) -> Capability` — convenience wrapper that decodes JSON string then delegates to FR-PARSE-01; raise `ZcapParseError` (never `json.JSONDecodeError`)                                                                                                                                                                                    |
+| FR-PARSE-04 | `ZcapParser.parse_invocation_from_json(json_str: str) -> Invocation` — same as above for invocations                                                                                                                                                                                                                                                                                        |
+| FR-PARSE-05 | Parser must validate: `id` is a non-empty string; `type` is the expected value; `controller` is a valid DID; `invocationTarget` is a non-empty URI string; `allowedAction` is a non-empty list of strings; `expires` parses as ISO 8601 UTC when present; `parentCapability` is a non-empty string **when present** (absence is valid for root capabilities)                                |
 | FR-PARSE-06 | **`proof` is optional at parse time for `Authorization` documents.** A root capability legitimately has no proof; `ZcapParser.parse_capability()` must accept a proof-absent root without raising. `proof` is **mandatory** on `Invocation` documents and raises `ZcapParseError` if absent. When a proof is present on any document, all proof sub-fields are validated per FR-PROOF rules |
-| FR-PARSE-07 | `ZcapParser` must expose `is_root(capability: Capability) -> bool` — returns `True` when `capability.parent_capability is None`. This makes root detection explicit and prevents callers from inferring rootness by inspecting `raw` |
-| FR-PARSE-08 | `ZcapParser` must be stateless and instantiable with no arguments; a shared singleton is acceptable |
-| FR-PARSE-09 | `ZcapParseError` must be a subclass of `ZcapError` and must carry `field: str` indicating which field failed |
+| FR-PARSE-07 | `ZcapParser` must expose `is_root(capability: Capability) -> bool` — returns `True` when `capability.parent_capability is None`. This makes root detection explicit and prevents callers from inferring rootness by inspecting `raw`                                                                                                                                                        |
+| FR-PARSE-08 | `ZcapParser` must be stateless and instantiable with no arguments; a shared singleton is acceptable                                                                                                                                                                                                                                                                                         |
+| FR-PARSE-09 | `ZcapParseError` must be a subclass of `ZcapError` and must carry `field: str` indicating which field failed                                                                                                                                                                                                                                                                                |
 
 **Parser class sketch:**
 
@@ -354,14 +363,14 @@ class ZcapParser:
 
 ### 3.8 Caveat Plugin System (FR-CAVEAT)
 
-| ID | Requirement |
-|----|-------------|
-| FR-CAVEAT-01 | Define `CaveatVerifier` as a Python `Protocol` (structural subtyping, no inheritance required) |
-| FR-CAVEAT-02 | `CaveatVerifier.caveat_type: str` — the string name this verifier handles |
-| FR-CAVEAT-03 | `CaveatVerifier.verify(caveat: dict, invocation: dict) -> None` — raises `CaveatError` on failure, returns `None` on success |
-| FR-CAVEAT-04 | `ZcapVerifier` accepts a `caveat_verifiers: list[CaveatVerifier]` argument |
+| ID           | Requirement                                                                                                                                                                                                  |
+| ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| FR-CAVEAT-01 | Define `CaveatVerifier` as a Python `Protocol` (structural subtyping, no inheritance required)                                                                                                               |
+| FR-CAVEAT-02 | `CaveatVerifier.caveat_type: str` — the string name this verifier handles                                                                                                                                    |
+| FR-CAVEAT-03 | `CaveatVerifier.verify(caveat: dict, invocation: dict) -> None` — raises `CaveatError` on failure, returns `None` on success                                                                                 |
+| FR-CAVEAT-04 | `ZcapVerifier` accepts a `caveat_verifiers: list[CaveatVerifier]` argument                                                                                                                                   |
 | FR-CAVEAT-05 | During invocation verification, for each caveat in `capability.caveat`, look up the matching verifier by `caveat["type"]`; if no verifier is registered for a type, raise `UnknownCaveatError` (fail-closed) |
-| FR-CAVEAT-06 | Core library ships with zero built-in caveat implementations; this is intentional |
+| FR-CAVEAT-06 | Core library ships with zero built-in caveat implementations; this is intentional                                                                                                                            |
 
 ### 3.9 Error Handling (FR-ERR)
 
@@ -387,35 +396,36 @@ ZcapError
 ```
 
 All `ZcapError` subclasses must:
+
 - Accept a human-readable `message: str`
 - Carry an optional `context: dict` for structured diagnostic data (e.g., the offending field values)
 - Never embed raw exception tracebacks in the message
 
 ### 3.10 Cross-Language Fixture Parity (FR-FIXTURE)
 
-| ID | Requirement |
-|----|-------------|
-| FR-FIXTURE-01 | Fixture files are hosted in the **`zcap-ld-fixtures`** standalone repository; both `zcap-py` and `zcap-dotnet` reference it as a git submodule at `tests/fixtures/` |
-| FR-FIXTURE-02 | `zcap-py` test suite consumes fixtures read-only; it does **not** generate or modify fixture files |
-| FR-FIXTURE-03 | `zcap-ld-fixtures` contains a `generate_fixtures.py` (Python) and a `GenerateFixtures.cs` (.NET) script that both produce identical output from the same deterministic seed keys |
+| ID            | Requirement                                                                                                                                                                                                                                           |
+| ------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| FR-FIXTURE-01 | Fixture files are hosted in the **`zcap-ld-fixtures`** standalone repository; both `zcap-py` and `zcap-dotnet` reference it as a git submodule at `tests/fixtures/`                                                                                   |
+| FR-FIXTURE-02 | `zcap-py` test suite consumes fixtures read-only; it does **not** generate or modify fixture files                                                                                                                                                    |
+| FR-FIXTURE-03 | `zcap-ld-fixtures` contains a `generate_fixtures.py` (Python) and a `GenerateFixtures.cs` (.NET) script that both produce identical output from the same deterministic seed keys                                                                      |
 | FR-FIXTURE-04 | Fixtures must include at least: valid 1-hop delegation, valid 2-hop chain, allowedAction violation, expiry violation, invocationTarget mismatch, path-narrowing attenuation (valid and invalid), invalid proof, invoker mismatch, unknown caveat type |
-| FR-FIXTURE-05 | JCS output for a canonical fixture document must be byte-identical between Python and .NET (validated by a dedicated `test_jcs_parity.py` that hashes canonicalized fixture documents) |
-| FR-FIXTURE-06 | Each fixture file must include a `"comment"` field, an `"expected"` field (`"valid"` or the exception class name string), and an optional `"expectedErrorField"` for parse errors |
+| FR-FIXTURE-05 | JCS output for a canonical fixture document must be byte-identical between Python and .NET (validated by a dedicated `test_jcs_parity.py` that hashes canonicalized fixture documents)                                                                |
+| FR-FIXTURE-06 | Each fixture file must include a `"comment"` field, an `"expected"` field (`"valid"` or the exception class name string), and an optional `"expectedErrorField"` for parse errors                                                                     |
 
 ---
 
 ## 4. Non-Functional Requirements
 
-| ID | Requirement |
-|----|-------------|
-| NFR-01 | **Zero transitive JSON-LD processor dependency** in core; `pyld` or `rdflib` may appear in optional extras |
+| ID     | Requirement                                                                                                                                         |
+| ------ | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| NFR-01 | **Zero transitive JSON-LD processor dependency** in core; `pyld` or `rdflib` may appear in optional extras                                          |
 | NFR-02 | **Minimal dependency surface**: `cryptography>=41`, `base58>=2.1`. JCS implemented in stdlib only (`json`, `struct`). No `requests`, no network I/O |
-| NFR-03 | **Python 3.11+** minimum; no `3.10` compat shims needed |
-| NFR-04 | **100% type-annotated** public API; `mypy --strict` must pass |
-| NFR-05 | **pytest coverage ≥ 90%** on all verification paths |
-| NFR-06 | **No global mutable state**; `ZcapVerifier` is instantiated per-use |
-| NFR-07 | **Thread-safe** by construction (no shared mutable class-level state) |
-| NFR-08 | MIT or Apache-2.0 license, compatible with `zcap-dotnet` |
+| NFR-03 | **Python 3.11+** minimum; no `3.10` compat shims needed                                                                                             |
+| NFR-04 | **100% type-annotated** public API; `mypy --strict` must pass                                                                                       |
+| NFR-05 | **pytest coverage ≥ 90%** on all verification paths                                                                                                 |
+| NFR-06 | **No global mutable state**; `ZcapVerifier` is instantiated per-use                                                                                 |
+| NFR-07 | **Thread-safe** by construction (no shared mutable class-level state)                                                                               |
+| NFR-08 | MIT or Apache-2.0 license, compatible with `zcap-dotnet`                                                                                            |
 
 ---
 
@@ -722,14 +732,14 @@ class PathPrefixAttenuator:
 
 **Fixture examples for path-prefix attenuation:**
 
-| Parent target | Child target | Valid? | Reason |
-|--------------|-------------|--------|--------|
-| `https://api.example.com/data/` | `https://api.example.com/data/records/42` | ✅ | Path narrowed |
-| `https://api.example.com/data/` | `https://api.example.com/data/` | ✅ | Exact match |
-| `https://api.example.com/data/` | `https://api.example.com/` | ❌ | Broadened |
-| `https://api.example.com/data/` | `https://other.example.com/data/` | ❌ | Different host |
-| `https://api.example.com/data/` | `http://api.example.com/data/records/` | ❌ | Different scheme |
-| `https://api.example.com/data/` | `https://api.example.com/data/q?filter=x` | ✅ | Query added |
+| Parent target                   | Child target                              | Valid? | Reason           |
+| ------------------------------- | ----------------------------------------- | ------ | ---------------- |
+| `https://api.example.com/data/` | `https://api.example.com/data/records/42` | ✅     | Path narrowed    |
+| `https://api.example.com/data/` | `https://api.example.com/data/`           | ✅     | Exact match      |
+| `https://api.example.com/data/` | `https://api.example.com/`                | ❌     | Broadened        |
+| `https://api.example.com/data/` | `https://other.example.com/data/`         | ❌     | Different host   |
+| `https://api.example.com/data/` | `http://api.example.com/data/records/`    | ❌     | Different scheme |
+| `https://api.example.com/data/` | `https://api.example.com/data/q?filter=x` | ✅     | Query added      |
 
 ### 5.5 Delegation Verification Flow
 
@@ -951,6 +961,7 @@ Stored in `zcap-ld-fixtures/valid/`. Root capabilities are referenced by delegat
 ```
 
 Key invariants verified by `test_fixtures.py` for every root capability fixture:
+
 - `parentCapability` is absent
 - `proof` is absent
 - `ZcapParser.is_root(cap) == True`
@@ -963,10 +974,8 @@ Stored in `zcap-ld-fixtures/valid/` or `zcap-ld-fixtures/invalid/`.
 ```json
 {
   "comment": "Valid 1-hop delegation from Alice (root controller) to Bob",
-  "root": { },
-  "chain": [
-    { }
-  ],
+  "root": {},
+  "chain": [{}],
   "expected": "valid"
 }
 ```
@@ -976,8 +985,8 @@ Stored in `zcap-ld-fixtures/valid/` or `zcap-ld-fixtures/invalid/`.
 ```json
 {
   "comment": "Valid invocation by Bob against delegated capability",
-  "capability": { },
-  "invocation": { },
+  "capability": {},
+  "invocation": {},
   "expected": "valid"
 }
 ```
@@ -987,8 +996,8 @@ Stored in `zcap-ld-fixtures/valid/` or `zcap-ld-fixtures/invalid/`.
 ```json
 {
   "comment": "allowedAction violation — child claims 'write' not in parent's ['read']",
-  "root": { },
-  "chain": [ { } ],
+  "root": {},
+  "chain": [{}],
   "expected": "ActionAttenuationError"
 }
 ```
@@ -1000,7 +1009,7 @@ Each fixture document includes a `"jcsCanonicalSha256"` field containing the hex
 ```json
 {
   "comment": "JCS parity check for root capability",
-  "document": { },
+  "document": {},
   "jcsCanonicalSha256": "<64-char hex>"
 }
 ```
@@ -1108,30 +1117,30 @@ except ZcapError as e:
 
 ### 8.1 Runtime (core — `zcap-py`)
 
-| Package | Version | Purpose |
-|---------|---------|---------|
+| Package        | Version  | Purpose                                     |
+| -------------- | -------- | ------------------------------------------- |
 | `cryptography` | `>=41.0` | Ed25519 key ops, constant-time verification |
-| `base58` | `>=2.1` | Base58btc encode/decode for multibase-z |
+| `base58`       | `>=2.1`  | Base58btc encode/decode for multibase-z     |
 
 No other runtime dependencies. JCS is stdlib-only. Async support uses stdlib `asyncio`.
 
 ### 8.2 Runtime (`zcap-py-builder` — separate package)
 
-| Package | Version | Purpose |
-|---------|---------|---------|
-| `zcap-py` | `>=0.1.0` | Core models, JCS, DID resolution |
-| `cryptography` | `>=41.0` | Ed25519 signing |
+| Package        | Version   | Purpose                          |
+| -------------- | --------- | -------------------------------- |
+| `zcap-py`      | `>=0.1.0` | Core models, JCS, DID resolution |
+| `cryptography` | `>=41.0`  | Ed25519 signing                  |
 
 ### 8.3 Development (both repos)
 
-| Package | Purpose |
-|---------|---------|
-| `pytest` | Testing |
-| `pytest-cov` | Coverage |
+| Package          | Purpose                                      |
+| ---------------- | -------------------------------------------- |
+| `pytest`         | Testing                                      |
+| `pytest-cov`     | Coverage                                     |
 | `pytest-asyncio` | Async test support (`asyncio_mode = "auto"`) |
-| `anyio[trio]` | Optional: test async under Trio backend |
-| `mypy` | Type checking (`--strict`) |
-| `ruff` | Linting and formatting |
+| `anyio[trio]`    | Optional: test async under Trio backend      |
+| `mypy`           | Type checking (`--strict`)                   |
+| `ruff`           | Linting and formatting                       |
 
 ### 8.4 Optional Extras (`zcap-py`)
 
@@ -1171,8 +1180,8 @@ dev = [
 ]
 
 [project.urls]
-Repository = "https://github.com/YOUR_ORG/zcap-py"
-Changelog  = "https://github.com/YOUR_ORG/zcap-py/blob/main/CHANGELOG.md"
+Repository = "https://github.com/moisesja/zcap-py"
+Changelog  = "https://github.com/moisesja/zcap-py/blob/main/CHANGELOG.md"
 
 [build-system]
 requires = ["hatchling"]
@@ -1223,7 +1232,7 @@ dev = [
 ]
 
 [project.urls]
-Repository = "https://github.com/YOUR_ORG/zcap-py-builder"
+Repository = "https://github.com/moisesja/zcap-py-builder"
 
 [build-system]
 requires = ["hatchling"]
@@ -1251,6 +1260,7 @@ Three repositories are built in parallel where indicated. All phases target `zca
 ### Phase 1 — Crypto & DID Foundation (Week 1)
 
 **`zcap-py`**
+
 - [ ] `zcap_py/exceptions.py` — full `ZcapError` hierarchy including `ZcapParseError`
 - [ ] `zcap_py/crypto/multibase.py` — z-base58btc encode/decode
 - [ ] `zcap_py/crypto/multicodec.py` — 0xed01 Ed25519 prefix
@@ -1262,6 +1272,7 @@ Three repositories are built in parallel where indicated. All phases target `zca
 ### Phase 2 — JCS, Proof Verification & Parser (Week 1–2)
 
 **`zcap-py`**
+
 - [ ] `zcap_py/jcs/canonicalize.py` — RFC 8785 (stdlib only; float via ES2019 ToString)
 - [ ] `zcap_py/proof/models.py` — `LinkedDataProof` dataclass
 - [ ] `zcap_py/proof/ed25519_2020.py` — verification only
@@ -1270,6 +1281,7 @@ Three repositories are built in parallel where indicated. All phases target `zca
 - [ ] Tests: `test_jcs.py` (RFC 8785 Appendix B vectors), `test_proof.py`, `test_parser.py`
 
 **`zcap-py-builder`** (starts here)
+
 - [ ] `zcap_py_builder/proof/ed25519_2020.py` — `sign()` function
 - [ ] `zcap_py_builder/capability_builder.py` — fluent `CapabilityBuilder`
 - [ ] `zcap_py_builder/invocation_builder.py` — fluent `InvocationBuilder`
@@ -1278,6 +1290,7 @@ Three repositories are built in parallel where indicated. All phases target `zca
 ### Phase 3 — Delegation, Invocation & Target Attenuation (Week 2)
 
 **`zcap-py`**
+
 - [ ] `zcap_py/zcap/target_attenuation.py` — `InvocationTargetAttenuator` Protocol + `PathPrefixAttenuator`
 - [ ] `zcap_py/zcap/caveats.py` — `CaveatVerifier` Protocol, `AsyncCaveatVerifier` Protocol, `CaveatRegistry`
 - [ ] `zcap_py/zcap/delegation.py` — sync delegation chain verifier
@@ -1288,16 +1301,19 @@ Three repositories are built in parallel where indicated. All phases target `zca
 ### Phase 4 — Async Verifier & Fixture Integration (Week 3)
 
 **`zcap-py`**
+
 - [ ] `zcap_py/zcap/async_verifier.py` — `AsyncZcapVerifier` wrapping sync internals via `asyncio.to_thread`; native `AsyncCaveatVerifier` dispatch
 - [ ] Tests: `test_async_verifier.py` — pytest-asyncio, covering both `asyncio` and `trio` backends via `anyio`
 
 **`zcap-ld-fixtures`** (new standalone repo — initialized here)
+
 - [ ] `generators/generate_fixtures.py` — deterministic fixture generation using fixed seed keys (Alice, Bob, Carol)
 - [ ] Generates all fixture files: `valid/`, `invalid/`, `keypairs/`, plus `jcsCanonicalSha256` fields
 - [ ] `generators/GenerateFixtures.cs` — .NET equivalent (produces identical JSON)
 - [ ] `schema/capability.schema.json`, `schema/invocation.schema.json`
 
 **`zcap-py`** (fixture integration)
+
 - [ ] Add `zcap-ld-fixtures` as git submodule at `tests/fixtures/`
 - [ ] `tests/test_fixtures.py` — parameterized round-trip over all fixture files
 - [ ] `tests/test_jcs_parity.py` — SHA-256 hash of canonicalized documents matched against `jcsCanonicalSha256`
@@ -1319,6 +1335,7 @@ Three repositories are built in parallel where indicated. All phases target `zca
 ### 11.1 Why no `pyld` in core?
 
 Full JSON-LD processing (expansion, compaction, framing) is complex, slow, and pulls in significant transitive dependencies including a network-capable context loader. The W3C ZCAP-LD spec requires JSON-LD semantics for full compliance, but the cryptographic security kernel operates on **the serialized document as-is** after JCS canonicalization. Deferring `pyld` means:
+
 - The core library has zero network I/O
 - JCS is applied to the raw dict before any JSON-LD transformation
 - Full JSON-LD compatibility can be layered on as an optional extra without changing any core verification logic
@@ -1352,6 +1369,7 @@ Each `Capability` and `Invocation` dataclass carries the original parsed `raw: d
 ### 11.8 `ZcapParser` as a dedicated class, not `from_dict()` classmethods (OQ-1 → resolved)
 
 Parsing logic is concentrated in `ZcapParser`, keeping models as pure frozen value objects. This separation of concerns means:
+
 - Models cannot be constructed in an invalid state by accident (no default-argument footguns)
 - The parser is independently testable
 - Future parsers (e.g., a lenient parser for migration tooling, or a streaming parser) can be introduced without touching the models
@@ -1364,6 +1382,7 @@ Signing requires `Ed25519PrivateKey` material. Keeping private key handling in a
 ### 11.10 `zcap-ld-fixtures` as a standalone language-neutral repo (OQ-3 → resolved)
 
 Fixtures are shared data, not code. A standalone repo with its own versioning means:
+
 - `zcap-py` and `zcap-dotnet` both pin to the same fixture commit via git submodule
 - Future language implementations (Go, Rust, TypeScript) can consume the same fixtures without cross-language build dependencies
 - Fixture versioning is decoupled from library versioning — a new fixture set doesn't require a library release
@@ -1380,40 +1399,40 @@ Ed25519 verification is CPU-bound, not I/O-bound. The correct async wrapper is `
 
 ## 12. Security Considerations
 
-| Concern | Mitigation |
-|---------|-----------|
-| Root capability spoofing | Root capabilities have no verifiable proof; the verifier deliberately does not verify them. The caller must establish root trust through an out-of-band mechanism (e.g., comparing `root.id` against a known registry, or confirming `root.controller` matches the resource's known owner DID). This is documented as a contract in `verify_delegation_chain` |
-| Timing attacks on signature verification | Delegated to `cryptography` library which uses constant-time comparison internally |
-| Malformed document injection | All raw-dict input gated through `ZcapParser` before any verification; `ZcapParseError` raised before cryptographic operations begin |
-| Malformed DID injection | DID parsing in `did/url.py` uses strict regex + structural validation; raises `DidParseError` on any deviation |
-| Proof stripping attack | `ZcapParser` requires `proof` on invocations unconditionally; missing proof raises `ZcapParseError` at parse time, before verification |
-| Confused deputy | `invoker` field explicitly checked in invocation verifier; if absent, falls back to `controller`; never inferred from proof content alone |
-| Caveat bypass | Fail-closed: unknown caveat types raise `UnknownCaveatError`; verifier never silently skips unrecognized caveats |
-| JCS non-determinism | Float serialization tested against RFC 8785 Appendix B test vectors; `canonicalize()` returns `bytes`, not `str`, preventing encoding ambiguity at the boundary |
-| Chain truncation | `verify_delegation_chain` verifies every link in order; a partial chain is detected by the `parentCapability` linkage check at the first gap |
-| invocationTarget broadening | `PathPrefixAttenuator.is_valid_attenuation` returns `False` on any broadening; `InvocationTargetError` is always raised, never silently allowed |
-| Async thread safety | `AsyncZcapVerifier` uses `asyncio.to_thread()` for CPU-bound crypto; no shared mutable state between threads; `ZcapVerifier` is stateless after construction |
+| Concern                                  | Mitigation                                                                                                                                                                                                                                                                                                                                                    |
+| ---------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Root capability spoofing                 | Root capabilities have no verifiable proof; the verifier deliberately does not verify them. The caller must establish root trust through an out-of-band mechanism (e.g., comparing `root.id` against a known registry, or confirming `root.controller` matches the resource's known owner DID). This is documented as a contract in `verify_delegation_chain` |
+| Timing attacks on signature verification | Delegated to `cryptography` library which uses constant-time comparison internally                                                                                                                                                                                                                                                                            |
+| Malformed document injection             | All raw-dict input gated through `ZcapParser` before any verification; `ZcapParseError` raised before cryptographic operations begin                                                                                                                                                                                                                          |
+| Malformed DID injection                  | DID parsing in `did/url.py` uses strict regex + structural validation; raises `DidParseError` on any deviation                                                                                                                                                                                                                                                |
+| Proof stripping attack                   | `ZcapParser` requires `proof` on invocations unconditionally; missing proof raises `ZcapParseError` at parse time, before verification                                                                                                                                                                                                                        |
+| Confused deputy                          | `invoker` field explicitly checked in invocation verifier; if absent, falls back to `controller`; never inferred from proof content alone                                                                                                                                                                                                                     |
+| Caveat bypass                            | Fail-closed: unknown caveat types raise `UnknownCaveatError`; verifier never silently skips unrecognized caveats                                                                                                                                                                                                                                              |
+| JCS non-determinism                      | Float serialization tested against RFC 8785 Appendix B test vectors; `canonicalize()` returns `bytes`, not `str`, preventing encoding ambiguity at the boundary                                                                                                                                                                                               |
+| Chain truncation                         | `verify_delegation_chain` verifies every link in order; a partial chain is detected by the `parentCapability` linkage check at the first gap                                                                                                                                                                                                                  |
+| invocationTarget broadening              | `PathPrefixAttenuator.is_valid_attenuation` returns `False` on any broadening; `InvocationTargetError` is always raised, never silently allowed                                                                                                                                                                                                               |
+| Async thread safety                      | `AsyncZcapVerifier` uses `asyncio.to_thread()` for CPU-bound crypto; no shared mutable state between threads; `ZcapVerifier` is stateless after construction                                                                                                                                                                                                  |
 
 ---
 
 ## 13. Relationship to `zcap-dotnet` and Ecosystem
 
-| Aspect | `zcap-dotnet` (C#/.NET 10) | `zcap-py` (Python 3.11) |
-|--------|--------------------------|------------------------|
-| Language | C# | Python |
-| Package role | Verification core | Verification core |
-| Signing / building | `zcap-dotnet` (same package) | `zcap-py-builder` (separate package) |
-| DID methods | did:key (initial), extensible | did:key (initial), extensible |
-| Signature suite | Ed25519Signature2020 | Ed25519Signature2020 |
-| Canonicalization | RFC 8785 (`JsonCanonicalization`) | RFC 8785 (stdlib native) |
-| Document parsing | `ZcapDocumentParser` class | `ZcapParser` class |
-| Exception model | Typed exception hierarchy | Typed `ZcapError` hierarchy |
-| Caveat mechanism | `ICaveatVerifier` interface | `CaveatVerifier` Protocol (sync + async) |
-| Target attenuation | `PathPrefixAttenuator` | `PathPrefixAttenuator` (identical rules) |
-| Async support | N/A (.NET Task-based) | `AsyncZcapVerifier` + `AsyncCaveatVerifier` |
-| Fixture source | `zcap-ld-fixtures` submodule | `zcap-ld-fixtures` submodule |
-| JSON-LD processing | Deferred | Deferred |
-| Package distribution | NuGet | PyPI |
+| Aspect               | `zcap-dotnet` (C#/.NET 10)        | `zcap-py` (Python 3.11)                     |
+| -------------------- | --------------------------------- | ------------------------------------------- |
+| Language             | C#                                | Python                                      |
+| Package role         | Verification core                 | Verification core                           |
+| Signing / building   | `zcap-dotnet` (same package)      | `zcap-py-builder` (separate package)        |
+| DID methods          | did:key (initial), extensible     | did:key (initial), extensible               |
+| Signature suite      | Ed25519Signature2020              | Ed25519Signature2020                        |
+| Canonicalization     | RFC 8785 (`JsonCanonicalization`) | RFC 8785 (stdlib native)                    |
+| Document parsing     | `ZcapDocumentParser` class        | `ZcapParser` class                          |
+| Exception model      | Typed exception hierarchy         | Typed `ZcapError` hierarchy                 |
+| Caveat mechanism     | `ICaveatVerifier` interface       | `CaveatVerifier` Protocol (sync + async)    |
+| Target attenuation   | `PathPrefixAttenuator`            | `PathPrefixAttenuator` (identical rules)    |
+| Async support        | N/A (.NET Task-based)             | `AsyncZcapVerifier` + `AsyncCaveatVerifier` |
+| Fixture source       | `zcap-ld-fixtures` submodule      | `zcap-ld-fixtures` submodule                |
+| JSON-LD processing   | Deferred                          | Deferred                                    |
+| Package distribution | NuGet                             | PyPI                                        |
 
 ---
 
@@ -1421,10 +1440,10 @@ Ed25519 verification is CPU-bound, not I/O-bound. The correct async wrapper is `
 
 All open questions from the initial draft have been resolved. No open questions remain for v0.1.
 
-| OQ | Question | Resolution |
-|----|----------|-----------|
-| OQ-1 | `from_dict()` classmethods vs. separate `Parser` class? | **Separate `ZcapParser` class.** Models are pure frozen value objects; all parsing, validation, and error raising is in `ZcapParser`. See §11.8 |
-| OQ-2 | Signing in core or separate `zcap-py-builder` package? | **`zcap-py-builder` — separate package.** Core is verification-only. Reduces audit surface. See §11.9 |
-| OQ-3 | Fixtures as submodule in `TurtleShell-id/zcap-fixtures`? | **Standalone `zcap-ld-fixtures` repo**, consumed as a git submodule by both `zcap-py` and `zcap-dotnet`. See §11.10 |
-| OQ-4 | How to express `invocationTarget` attenuation rules? | **Path-prefix narrowing, identical to `zcap-dotnet`'s `PathPrefixAttenuator`.** Same scheme + authority + child path ⊇ parent path. See §5.4 and §11.11 |
-| OQ-5 | Async support in v0.1 or defer to v0.2? | **In v0.1.** `AsyncZcapVerifier` via `asyncio.to_thread`; `AsyncCaveatVerifier` Protocol for native async caveats. See §5.3 and §11.12 |
+| OQ   | Question                                                 | Resolution                                                                                                                                              |
+| ---- | -------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| OQ-1 | `from_dict()` classmethods vs. separate `Parser` class?  | **Separate `ZcapParser` class.** Models are pure frozen value objects; all parsing, validation, and error raising is in `ZcapParser`. See §11.8         |
+| OQ-2 | Signing in core or separate `zcap-py-builder` package?   | **`zcap-py-builder` — separate package.** Core is verification-only. Reduces audit surface. See §11.9                                                   |
+| OQ-3 | Fixtures as submodule in `TurtleShell-id/zcap-fixtures`? | **Standalone `zcap-ld-fixtures` repo**, consumed as a git submodule by both `zcap-py` and `zcap-dotnet`. See §11.10                                     |
+| OQ-4 | How to express `invocationTarget` attenuation rules?     | **Path-prefix narrowing, identical to `zcap-dotnet`'s `PathPrefixAttenuator`.** Same scheme + authority + child path ⊇ parent path. See §5.4 and §11.11 |
+| OQ-5 | Async support in v0.1 or defer to v0.2?                  | **In v0.1.** `AsyncZcapVerifier` via `asyncio.to_thread`; `AsyncCaveatVerifier` Protocol for native async caveats. See §5.3 and §11.12                  |
