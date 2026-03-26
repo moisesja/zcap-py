@@ -12,7 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - **JCS Canonicalization**: `canonicalize()` wrapper around RFC 8785 / JCS via the `rfc8785` library — produces deterministic JSON bytes for signature payloads
-- **Proof Verification**: `verify_document_proof()` implementing Ed25519Signature2020 per FR-PROOF-02 — extracts proof, strips `proofValue`, merges proof metadata back into document, JCS-canonicalizes, and verifies Ed25519 signature
+- **Proof Verification**: `verify_document_proof()` implementing Ed25519Signature2020 (JCS-based, not URDNA2015) per FR-PROOF-02 — extracts proof, strips `proofValue`, merges proof metadata back into document, JCS-canonicalizes, and verifies Ed25519 signature. Interoperable with `zcap-dotnet` but not with W3C-compliant URDNA2015 implementations
 - **Proof Model**: `LinkedDataProof` frozen dataclass with `type`, `verification_method`, `created`, `proof_value`, `capability`, `capability_action`, and `proof_purpose` fields
 - **ZCAP Document Models**: `Capability` and `Invocation` frozen dataclasses
   - `Capability.is_root` property (True when `parent_capability` is None)
