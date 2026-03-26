@@ -1,12 +1,4 @@
-"""Ed25519Signature2020 proof verification (JCS-based).
-
-This module verifies Ed25519Signature2020 proofs using RFC 8785 / JCS
-canonicalization instead of the W3C-specified RDF Dataset Canonicalization
-(URDNA2015).  This is a deliberate design choice for ``did:key``-only
-documents (see PRD section 11.2).  Signatures produced or verified by this
-module are NOT interoperable with W3C-compliant Ed25519Signature2020
-implementations that use URDNA2015.
-"""
+"""Ed25519Signature2020 proof verification."""
 
 from __future__ import annotations
 
@@ -32,18 +24,11 @@ ED25519_SIGNATURE_LENGTH = 64
 
 
 def verify_document_proof(document: dict[str, object]) -> None:
-    """Verify an Ed25519Signature2020 proof on a document.
+    """Verify the Ed25519Signature2020 proof on a document.
 
     Resolves the public key from ``proof.verificationMethod`` (key binding),
     then verifies the Ed25519 signature against the JCS-canonicalized
     document payload.
-
-    .. note::
-
-       This uses **JCS (RFC 8785)** canonicalization, not the W3C-specified
-       URDNA2015 / RDF Dataset Canonicalization.  Proofs created or verified
-       here are interoperable only with systems using the same JCS-based
-       approach (e.g. ``zcap-dotnet``).
 
     Per FR-PROOF-02: extract proof, remove proofValue from proof copy,
     merge proof copy back into document, JCS-canonicalize, verify signature.

@@ -15,8 +15,8 @@ A minimal, production-quality Python library implementing the [W3C Authorization
 - `did:key` encoding, decoding, and resolution (Ed25519 only)
 - Multibase-z (base58btc) and multicodec support
 - Strict DID URL parsing and validation
-- RFC 8785 / JCS canonicalization (see [Canonicalization Approach](#canonicalization-approach) below)
-- Ed25519Signature2020 proof verification (JCS-based, not URDNA2015)
+- RFC 8785 / JCS canonicalization
+- Ed25519Signature2020 proof verification
 - ZCAP-LD document parsing (Capability & Invocation)
 - Typed exception hierarchy for controlled error handling
 - 100% type-annotated public API (`mypy --strict` compliant)
@@ -175,7 +175,7 @@ print(type(canonical))  # <class 'bytes'>
 
 ### Verifying a Document Proof
 
-Verify an Ed25519Signature2020 proof (JCS-based) on a document:
+Verify an Ed25519Signature2020 proof on any JSON-LD document:
 
 ```python
 from zcap_py import generate_ed25519_keypair, verify_document_proof, SignatureVerificationError
@@ -337,16 +337,6 @@ except ZcapError:
 ## Project Status
 
 This library is in active development. Phase 1 (crypto & DID foundation) and Phase 2 (JCS canonicalization, proof verification, document parsing) are complete. Upcoming phases will add delegation chain verification, invocation verification, and async support.
-
-## Canonicalization Approach
-
-This library uses **RFC 8785 / JCS** (JSON Canonicalization Scheme) instead of the W3C-specified **RDF Dataset Canonicalization (URDNA2015)** for Ed25519Signature2020 proofs. This is a deliberate design choice:
-
-- For `did:key`-only documents with no blank nodes and deterministic key identifiers, JCS is sufficient and produces cross-language-verifiable output (byte-identical with `zcap-dotnet`).
-- URDNA2015 requires a full RDF parser and blank-node canonicalization algorithm, pulling in heavy dependencies (`pyld`, `rdflib`) and network-capable context loaders — counter to this library's zero-network-I/O design.
-- Full JSON-LD / URDNA2015 support can be layered on as an optional extra in the future without changing core verification logic.
-
-**Interoperability note:** Proofs created or verified by this library are interoperable with systems using the same JCS-based approach (e.g. `zcap-dotnet`), but are **not** interoperable with W3C-compliant Ed25519Signature2020 implementations that use URDNA2015.
 
 ## Reference Specification
 
