@@ -15,6 +15,9 @@ A minimal, production-quality Python library implementing the [W3C Authorization
 - `did:key` encoding, decoding, and resolution (Ed25519 only)
 - Multibase-z (base58btc) and multicodec support
 - Strict DID URL parsing and validation
+- RFC 8785 / JCS canonicalization
+- Ed25519Signature2020 proof verification
+- ZCAP-LD document parsing (Capability & Invocation)
 - Typed exception hierarchy for controlled error handling
 - 100% type-annotated public API (`mypy --strict` compliant)
 - Zero network I/O in core — fully offline verification
@@ -156,18 +159,168 @@ print(prefixed[:2].hex())  # "ed01" — the ed25519-pub multicodec prefix
 assert decode_ed25519_pub(prefixed) == key_bytes
 ```
 
+### JCS Canonicalization
+
+Produce deterministic JSON bytes per [RFC 8785](https://www.rfc-editor.org/rfc/rfc8785):
+
+```python
+from zcap_py import canonicalize
+
+doc = {"z": 1, "a": 2, "nested": {"b": True, "a": None}}
+canonical = canonicalize(doc)
+
+print(canonical)        # b'{"a":2,"nested":{"a":null,"b":true},"z":1}'
+print(type(canonical))  # <class 'bytes'>
+```
+
+### Verifying a Document Proof
+
+Verify an Ed25519Signature2020 proof on any JSON-LD document:
+
+```python
+from zcap_py import generate_ed25519_keypair, verify_document_proof, SignatureVerificationError
+from zcap_py import canonicalize, base58btc_encode
+
+keypair = generate_ed25519_keypair()
+
+# Build a document with a valid Ed25519Signature2020 proof
+document_body = {
+    "id": "urn:example:cap-1",
+    "type": "Authorization",
+    "controller": keypair.did,
+    "invocationTarget": "https://api.example.com/docs",
+    "allowedAction": ["read"],
+}
+proof_metadata = {
+    "type": "Ed25519Signature2020",
+    "verificationMethod": keypair.verification_method,
+    "created": "2026-01-01T00:00:00Z",
+    "proofPurpose": "capabilityDelegation",
+}
+# Sign: canonicalize the document with proof metadata (minus proofValue), then sign
+to_sign = {**document_body, "proof": proof_metadata}
+signature = keypair.private_key.sign(canonicalize(to_sign))
+proof = {**proof_metadata, "proofValue": base58btc_encode(signature)}
+signed_document = {**document_body, "proof": proof}
+
+# Verify — returns None on success, raises on failure
+verify_document_proof(signed_document, keypair.public_key)
+
+# Tampered document raises SignatureVerificationError
+tampered = {**signed_document, "invocationTarget": "https://evil.example.com"}
+tampered["proof"] = signed_document["proof"]
+try:
+    verify_document_proof(tampered, keypair.public_key)
+except SignatureVerificationError as e:
+    print(e.message)  # "Ed25519 signature verification failed"
+```
+
+### Parsing a Capability
+
+Parse and validate a ZCAP-LD capability document:
+
+```python
+from zcap_py import ZcapParser, ZcapParseError
+
+parser = ZcapParser()
+
+# Parse a root capability (no parent, no proof required)
+raw_cap = {
+    "id": "urn:example:root-cap",
+    "type": "Authorization",
+    "controller": "did:key:z6MkhaXgBZDvotDkL5257faiztiGiC2QtKLGpbnnEGta2doK",
+    "invocationTarget": "https://api.example.com/docs",
+    "allowedAction": ["read", "write"],
+}
+cap = parser.parse_capability(raw_cap)
+
+print(cap.id)                # "urn:example:root-cap"
+print(cap.controller)        # "did:key:z6Mk..."
+print(cap.allowed_action)    # ["read", "write"]
+print(cap.is_root)           # True
+print(cap.parent_capability) # None
+print(cap.expires)           # None
+
+# Parse from a JSON string
+import json
+cap2 = parser.parse_capability_from_json(json.dumps(raw_cap))
+assert cap2.id == cap.id
+
+# Invalid documents raise ZcapParseError with the offending field
+try:
+    parser.parse_capability({"id": "", "type": "Authorization"})
+except ZcapParseError as e:
+    print(e.message)  # "Missing or invalid field 'id'"
+    print(e.field)    # "id"
+```
+
+### Parsing an Invocation
+
+Parse and validate a ZCAP-LD invocation document:
+
+```python
+from zcap_py import (
+    ZcapParser, generate_ed25519_keypair,
+    canonicalize, base58btc_encode,
+)
+
+keypair = generate_ed25519_keypair()
+
+# Build a signed invocation
+inv_body = {
+    "id": "urn:example:inv-1",
+    "type": "Invocation",
+    "capability": "urn:example:root-cap",
+    "invocationTarget": "https://api.example.com/docs",
+}
+proof_metadata = {
+    "type": "Ed25519Signature2020",
+    "verificationMethod": keypair.verification_method,
+    "created": "2026-01-01T00:00:00Z",
+    "proofPurpose": "capabilityInvocation",
+    "capability": "urn:example:root-cap",
+    "capabilityAction": "read",
+}
+to_sign = {**inv_body, "proof": proof_metadata}
+signature = keypair.private_key.sign(canonicalize(to_sign))
+proof = {**proof_metadata, "proofValue": base58btc_encode(signature)}
+signed_inv = {**inv_body, "proof": proof}
+
+parser = ZcapParser()
+inv = parser.parse_invocation(signed_inv)
+
+print(inv.id)                        # "urn:example:inv-1"
+print(inv.capability)                # "urn:example:root-cap"
+print(inv.invocation_target)         # "https://api.example.com/docs"
+print(inv.proof.proof_purpose)       # "capabilityInvocation"
+print(inv.proof.capability_action)   # "read"
+```
+
 ### Error Handling
 
 All exceptions inherit from `ZcapError` and carry structured context:
 
 ```python
-from zcap_py import ZcapError, DidParseError, SignatureVerificationError, decode_did_key
+from zcap_py import (
+    ZcapError, DidParseError, ZcapParseError,
+    ProofError, UnsupportedProofTypeError,
+    SignatureVerificationError, CanonicalizationError,
+    decode_did_key,
+)
 
 try:
     decode_did_key("not-a-did")
 except DidParseError as e:
-    print(e.message)             # Human-readable message
-    print(e.context)             # {"did": "not-a-did"} — structured data for logging
+    print(e.message)  # Human-readable message
+    print(e.context)  # {"did": "not-a-did"} — structured data for logging
+
+# ZcapParseError includes the offending field name
+from zcap_py import ZcapParser
+try:
+    ZcapParser().parse_capability({"type": "Authorization"})
+except ZcapParseError as e:
+    print(e.field)    # "id"
+    print(e.message)  # "Missing or invalid field 'id'"
 
 # Catch all library errors at once
 try:
@@ -179,11 +332,11 @@ except ZcapError:
 ## Requirements
 
 - Python 3.11+
-- Runtime dependencies: `cryptography>=41.0`, `multiformats>=0.3.1`
+- Runtime dependencies: `cryptography>=41.0`, `multiformats>=0.3.1`, `rfc8785>=0.1.4`
 
 ## Project Status
 
-This library is in active development. Phase 1 (crypto & DID foundation) is complete. Upcoming phases will add JCS canonicalization, proof verification, delegation chain verification, invocation verification, and async support.
+This library is in active development. Phase 1 (crypto & DID foundation) and Phase 2 (JCS canonicalization, proof verification, document parsing) are complete. Upcoming phases will add delegation chain verification, invocation verification, and async support.
 
 ## Reference Specification
 
