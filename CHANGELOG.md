@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Released]
 
+## [0.2.0] - 2026-03-26
+
+### Added
+
+- RFC 8785 / JCS canonicalization via `rfc8785` library (`canonicalize()`)
+- `LinkedDataProof` frozen dataclass for Ed25519Signature2020 proof structures
+- `verify_document_proof()` for Ed25519Signature2020 proof verification (FR-PROOF-02)
+- `Capability` and `Invocation` frozen dataclasses with `Capability.is_root` property
+- `ZcapParser` stateless document parser with full field validation
+  - `parse_capability()`, `parse_invocation()` from raw dicts
+  - `parse_capability_from_json()`, `parse_invocation_from_json()` from JSON strings
+  - `is_root()` static method
+- New dependency: `rfc8785>=0.1.4` (zero-dep, Apache 2.0, Trail of Bits)
+
 ## [0.1.1] - 2026-03-26
 
 ### Fixed

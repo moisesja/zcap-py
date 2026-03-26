@@ -25,8 +25,13 @@ from zcap_py.exceptions import (
     ZcapError,
     ZcapParseError,
 )
+from zcap_py.jcs.canonicalize import canonicalize
+from zcap_py.proof.ed25519_2020 import verify_document_proof
+from zcap_py.proof.models import LinkedDataProof
+from zcap_py.zcap.models import Capability, Invocation
+from zcap_py.zcap.parser import ZcapParser
 
-__version__ = "0.1.1"
+__version__ = "0.2.0"
 
 __all__ = [
     "__version__",
@@ -48,6 +53,15 @@ __all__ = [
     "parse_did",
     "parse_did_url",
     "strip_did_fragment",
+    # JCS
+    "canonicalize",
+    # Proof
+    "LinkedDataProof",
+    "verify_document_proof",
+    # ZCAP Models & Parser
+    "Capability",
+    "Invocation",
+    "ZcapParser",
     # Exceptions
     "ZcapError",
     "ZcapParseError",
