@@ -6,7 +6,7 @@ from dataclasses import dataclass
 
 from multiformats import multibase, multicodec
 
-from zcap_py.did.url import parse_did
+from zcap_py.did.url import parse_did, parse_did_url
 from zcap_py.exceptions import DidParseError
 
 ED25519_PUB_KEY_LENGTH: int = 32
@@ -65,19 +65,22 @@ def resolve_did_key(did_or_url: str) -> VerificationMethod:
     No network I/O — purely local decoding (FR-DID-05).
 
     Raises:
-        DidParseError: If the DID/URL is malformed.
+        DidParseError: If the DID/URL is malformed or fragment is invalid.
     """
-    base_did = did_or_url.split("#")[0]
-    parsed = parse_did(base_did)
+    if "#" in did_or_url:
+        parsed_url = parse_did_url(did_or_url)
+        base_did = parsed_url.did.full_did
+        multibase_key = parsed_url.did.identifier
+    else:
+        parsed = parse_did(did_or_url)
+        base_did = parsed.full_did
+        multibase_key = parsed.identifier
 
     # Validate key bytes are valid Ed25519
     decode_did_key(base_did)
 
-    multibase_key = parsed.identifier
-    verification_method_id = f"{base_did}#{multibase_key}"
-
     return VerificationMethod(
-        id=verification_method_id,
+        id=f"{base_did}#{multibase_key}",
         type="Ed25519VerificationKey2020",
         controller=base_did,
         public_key_multibase=multibase_key,

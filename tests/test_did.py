@@ -170,9 +170,25 @@ class TestResolveDidKey:
         assert "#" in result.id
         assert result.id == ALICE_VM
 
-    def test_from_url_strips_fragment(self) -> None:
+    def test_valid_did_url_resolves(self) -> None:
         result = resolve_did_key(ALICE_VM)
         assert result.controller == ALICE_DID
+        assert result.id == ALICE_VM
+
+    def test_mismatched_fragment_raises_error(self) -> None:
+        bad_url = f"{ALICE_DID}#z6MkDifferentFragmentAAAAAAAAAAAAAAAAAAAAAAAA"
+        with pytest.raises(DidParseError, match="does not match"):
+            resolve_did_key(bad_url)
+
+    def test_invalid_did_url_raises_error(self) -> None:
+        with pytest.raises(DidParseError):
+            resolve_did_key("not-a-did#fragment")
+
+    def test_generated_keypair_vm_resolves(self) -> None:
+        kp = generate_ed25519_keypair()
+        result = resolve_did_key(kp.verification_method)
+        assert result.controller == kp.did
+        assert result.id == kp.verification_method
 
     def test_public_key_multibase_starts_with_z(self) -> None:
         result = resolve_did_key(ALICE_DID)
