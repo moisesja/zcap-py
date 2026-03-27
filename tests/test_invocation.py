@@ -101,9 +101,20 @@ class TestValidInvocation:
 
         verify_invocation(inv, cap)
 
-    def test_capability_action_absent_passes(self) -> None:
+    def test_capability_action_absent_raises_when_allowed_action_present(self) -> None:
+        """When capability has allowedAction, capabilityAction is required."""
         bob = generate_ed25519_keypair()
         cap = _make_cap(bob.did, actions=["read"])
+        inv_raw = _make_invocation(bob.private_key, bob.verification_method, capability_action=None)
+        inv = parser.parse_invocation(inv_raw)
+
+        with pytest.raises(InvocationError, match="capabilityAction"):
+            verify_invocation(inv, cap)
+
+    def test_capability_action_absent_passes_when_no_allowed_action(self) -> None:
+        """When capability has no allowedAction, capabilityAction is not required."""
+        bob = generate_ed25519_keypair()
+        cap = _make_cap(bob.did, actions=None)
         inv_raw = _make_invocation(bob.private_key, bob.verification_method, capability_action=None)
         inv = parser.parse_invocation(inv_raw)
 

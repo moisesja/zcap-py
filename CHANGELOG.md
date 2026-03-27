@@ -7,6 +7,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Released]
 
+## [0.5.0] - 2026-03-26
+
+### Added
+
+- **Proof Dispatcher** (`verifier.py`): `ProofVerifier` type alias and `proof_verifier` parameter on `ZcapVerifier`, `verify_delegation_chain()`, and `verify_invocation()` — allows plugging in W3C URDNA2015 (`verify_document_proof_w3c`) or any custom `Callable[[dict], None]` verifier. Default remains JCS for backward compatibility
+- **Embedded Capabilities** (`parser.py`, `models.py`): Invocation `capability` field now accepts an embedded capability dict in addition to a string ID. Parsed embedded capabilities are stored as `Invocation.embedded_capability` and auto-resolved by `ZcapVerifier.verify_invocation()` when `capability=None`
+- **capabilityChain in Proof** (`models.py`, `parser.py`, `verifier.py`): `LinkedDataProof.capability_chain` field parses `proof.capabilityChain` arrays (string references + embedded dict entries). `ZcapVerifier` auto-resolves all-embedded chains; string references raise `InvocationError` (document loader not yet available)
+- **Ancestor Caveat Enforcement** (`verifier.py`): All capabilities in a delegation chain (not just the leaf) now have their caveats verified against the invocation. Parent/intermediate caveats are inherited per the W3C ZCAP-LD draft spec
+- **Chain-to-Capability Linkage** (`verifier.py`): `ZcapVerifier.verify_invocation()` now validates that `chain[-1].id == capability.id`, ensuring the delegation chain actually terminates at the invoked capability
+- **Absolute Expiry Check** (`verifier.py`): `ZcapVerifier.verify_invocation()` checks all capabilities in the chain (plus the target capability) against the injected clock. Expired capabilities raise `CapabilityExpiredError`
+- **`CapabilityExpiredError`** (`exceptions.py`): New exception subclass of `InvocationError` for expired capabilities at invocation time
+- **`ProofVerifier`** type alias exported from `zcap_py` top-level package
+- 23 new tests: verifier facade (17 — expiry, linkage, ancestor caveats, proof dispatcher, embedded capabilities, capabilityChain), invocation (1 new, 1 updated), target attenuation (5 — query string)
+
+### Changed
+
+- **BREAKING:** `capabilityAction` is now **required** in invocation proof when the capability has `allowedAction` — previously accepted when absent, now raises `InvocationError` for proper cryptographic action binding
+- **BREAKING:** `PathPrefixAttenuator` now enforces query string attenuation — parent `?tenant=a` rejects child `?tenant=b` or child without query; child may only extend with `&`-delimited params
+- **BREAKING:** `ZcapVerifier.verify_invocation()` `capability` parameter is now `Capability | None` (default `None`) — when `None`, the embedded capability from the invocation is used
+- `verify_delegation_chain()` and `verify_invocation()` accept optional `proof_verifier` keyword argument (non-breaking — defaults to JCS)
+- `Invocation` model gains `embedded_capability: Capability | None` field
+- `LinkedDataProof` model gains `capability_chain: tuple[str | dict, ...] | None` field
+
+### Security
+
+- Fixed ancestor caveats not being enforced — parent/intermediate capability caveats were silently skipped during invocation verification
+- Fixed chain-to-capability linkage gap — delegation chain was verified but never checked to actually terminate at the invoked capability
+- Fixed expired capabilities being invocable — clock was stored but never used for absolute expiry checks
+- Fixed capabilityAction bypass — omitting `capabilityAction` from the proof when the capability had `allowedAction` was silently accepted
+- Fixed query string attenuation bypass — `PathPrefixAttenuator` ignored query parameters, allowing `?tenant=b` to satisfy `?tenant=a`
+
 ## [0.4.0] - 2026-03-26
 
 ### Added

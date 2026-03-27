@@ -9,6 +9,8 @@ from zcap_py.exceptions import InvocationError, InvokerMismatchError
 from zcap_py.proof.ed25519_2020 import verify_document_proof
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from zcap_py.zcap.caveats import CaveatRegistry
     from zcap_py.zcap.models import Capability, Invocation
 
@@ -25,6 +27,7 @@ def verify_invocation(
     capability: Capability,
     *,
     caveat_registry: CaveatRegistry | None = None,
+    proof_verifier: Callable[[dict[str, object]], None] | None = None,
 ) -> None:
     """Verify an invocation against its target capability.
 
@@ -79,22 +82,29 @@ def verify_invocation(
         )
 
     # FR-INVOKE-05: capabilityAction check
-    if (
-        invocation.proof.capability_action is not None
-        and capability.allowed_action is not None
-        and invocation.proof.capability_action not in capability.allowed_action
-    ):
-        raise InvocationError(
-            f"capabilityAction '{invocation.proof.capability_action}' "
-            f"not in capability's allowedAction",
-            context={
-                "capability_action": invocation.proof.capability_action,
-                "allowed_actions": capability.allowed_action,
-            },
-        )
+    # When capability has allowedAction, capabilityAction is REQUIRED for cryptographic binding
+    if capability.allowed_action is not None:
+        if invocation.proof.capability_action is None:
+            raise InvocationError(
+                "Invocation proof must include 'capabilityAction' when "
+                "capability has 'allowedAction'",
+                context={
+                    "allowed_actions": capability.allowed_action,
+                    "capability_action": None,
+                },
+            )
+        if invocation.proof.capability_action not in capability.allowed_action:
+            raise InvocationError(
+                f"capabilityAction '{invocation.proof.capability_action}' "
+                f"not in capability's allowedAction",
+                context={
+                    "capability_action": invocation.proof.capability_action,
+                    "allowed_actions": capability.allowed_action,
+                },
+            )
 
     # FR-INVOKE-06: Cryptographic proof verification
-    verify_document_proof(invocation.raw)
+    (proof_verifier or verify_document_proof)(invocation.raw)
 
     # FR-INVOKE-07: Caveat verification
     if caveat_registry is not None and capability.caveat:

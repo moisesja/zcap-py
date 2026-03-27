@@ -30,9 +30,12 @@ class PathPrefixAttenuator:
       2. Scheme must be identical (case-insensitive).
       3. Authority (host + port) must be identical (case-insensitive).
       4. Child path must begin with parent path after normalizing trailing slashes.
-      5. Query string and fragment may differ freely.
-      6. Exact match (child == parent) is always valid.
-      7. Broadening (child path outside parent path scope) is always invalid.
+      5. If parent has a query string, child must preserve it as a prefix
+         and may only extend by appending ``&`` parameters.
+         If parent has no query string, child may add any query freely.
+      6. Fragment may differ freely.
+      7. Exact match (child == parent) is always valid.
+      8. Broadening (child path outside parent path scope) is always invalid.
     """
 
     def is_valid_attenuation(self, parent_target: str, child_target: str) -> bool:
@@ -54,4 +57,15 @@ class PathPrefixAttenuator:
         parent_path = p.path.rstrip("/") + "/"
         child_path = c.path.rstrip("/") + "/"
 
-        return child_path.startswith(parent_path)
+        if not child_path.startswith(parent_path):
+            return False
+
+        # Query string attenuation: if parent has a query, child must
+        # preserve it exactly and may only extend with '&' params.
+        if p.query:
+            if not c.query:
+                return False
+            if c.query != p.query and not c.query.startswith(p.query + "&"):
+                return False
+
+        return True

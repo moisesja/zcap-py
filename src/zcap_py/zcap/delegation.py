@@ -20,6 +20,8 @@ from zcap_py.zcap.target_attenuation import (
 )
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from zcap_py.zcap.models import Capability
 
 
@@ -36,6 +38,7 @@ def _verify_delegation_link(
     *,
     allow_target_attenuation: bool = False,
     target_attenuator: InvocationTargetAttenuator | None = None,
+    proof_verifier: Callable[[dict[str, object]], None] | None = None,
 ) -> None:
     """Verify a single delegation link from *parent* to *child*.
 
@@ -122,7 +125,7 @@ def _verify_delegation_link(
             )
 
     # FR-DELEG-06: Cryptographic proof verification
-    verify_document_proof(child.raw)
+    (proof_verifier or verify_document_proof)(child.raw)
 
 
 def verify_delegation_chain(
@@ -131,6 +134,7 @@ def verify_delegation_chain(
     *,
     allow_target_attenuation: bool = False,
     target_attenuator: InvocationTargetAttenuator | None = None,
+    proof_verifier: Callable[[dict[str, object]], None] | None = None,
 ) -> None:
     """Verify a full delegation chain from *root* to the leaf.
 
@@ -159,6 +163,7 @@ def verify_delegation_chain(
                 child,
                 allow_target_attenuation=allow_target_attenuation,
                 target_attenuator=target_attenuator,
+                proof_verifier=proof_verifier,
             )
         except ZcapError as exc:
             raise ChainVerificationError(

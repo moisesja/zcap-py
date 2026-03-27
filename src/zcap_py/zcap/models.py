@@ -40,4 +40,5 @@ class Invocation:
     capability: str
     invocation_target: str
     proof: LinkedDataProof
+    embedded_capability: Capability | None = None
     raw: dict[str, object] = field(default_factory=dict, compare=False)

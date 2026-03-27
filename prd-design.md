@@ -187,6 +187,7 @@ The `zcap-dotnet` library addresses the .NET ecosystem. A Python counterpart ser
 | FR-PROOF-04 | `proof.created` must be a valid ISO 8601 datetime string; raise `ProofError` if malformed                                                          |
 | FR-PROOF-05 | `proof.type` must equal `"Ed25519Signature2020"`; raise `UnsupportedProofTypeError` otherwise                                                      |
 | FR-PROOF-06 | `proofValue` must be a valid multibase-z base58btc string of exactly 64 bytes decoded; raise `ProofError` otherwise                                |
+| FR-PROOF-07 | **Proof dispatcher.** `ZcapVerifier`, `verify_delegation_chain()`, and `verify_invocation()` accept an optional `proof_verifier: Callable[[dict], None]` parameter. Default is JCS-based `verify_document_proof()`. W3C URDNA2015 via `verify_document_proof_w3c()` is supported as an alternative. `ProofVerifier` type alias is exported from the public API |
 
 ### 3.5 Capability Delegation Verification (FR-DELEG)
 
@@ -211,9 +212,13 @@ The full delegation chain verification semantics:
 | FR-INVOKE-02 | **invocationTarget match.** `invocation.invocationTarget == capability.invocationTarget`. Raise `InvocationError`                                                                                   |
 | FR-INVOKE-03 | **Invoker identity.** The DID of `invocation.proof.verificationMethod` (stripped of fragment) must equal `capability.controller` (or `capability.invoker` if present). Raise `InvokerMismatchError` |
 | FR-INVOKE-04 | **Proof/body consistency.** `invocation.capability` (body field) must equal `invocation.proof.capability`. Raise `InvocationError`                                                                  |
-| FR-INVOKE-05 | **capabilityAction check.** If `invocation.proof.capabilityAction` is set, it must be a member of `capability.allowedAction`. Raise `InvocationError`                                               |
-| FR-INVOKE-06 | Verify the invocation's cryptographic proof (FR-PROOF)                                                                                                                                              |
-| FR-INVOKE-07 | Run all registered `CaveatVerifier` plugins against the invocation; raise `CaveatError` if any fail                                                                                                 |
+| FR-INVOKE-05 | **capabilityAction mandatory.** When `capability.allowedAction` is set, `invocation.proof.capabilityAction` is **required** and must be a member of `allowedAction`. Raise `InvocationError` if absent or not in the set |
+| FR-INVOKE-06 | Verify the invocation's cryptographic proof using the configured `proof_verifier` (defaults to JCS; see FR-PROOF-07)                                                                                |
+| FR-INVOKE-07 | Run all registered `CaveatVerifier` plugins against the invocation for the **leaf capability and all ancestor capabilities** in the chain; raise `CaveatError` if any fail                          |
+| FR-INVOKE-08 | **Chain-to-capability linkage.** When a delegation chain is provided, `chain[-1].id` must equal `capability.id`. Raise `InvocationError` if the chain does not terminate at the invoked capability   |
+| FR-INVOKE-09 | **Absolute expiry check.** All capabilities in the chain (plus the target capability) must be checked against the current clock. Raise `CapabilityExpiredError` if any have expired                  |
+| FR-INVOKE-10 | **Embedded capability resolution.** When `capability` is `None`, the verifier resolves it from `invocation.embedded_capability` (parsed from embedded dict in `capability` field)                    |
+| FR-INVOKE-11 | **capabilityChain resolution.** When `chain` is `None` and `invocation.proof.capability_chain` exists, resolve all-embedded chains automatically. String entries raise `InvocationError` (requires document loader) |
 
 ### 3.7 Document Parsing (FR-PARSE)
 
@@ -390,7 +395,8 @@ ZcapError
 │   └── InvocationTargetError
 │   └── ChainVerificationError
 ├── InvocationError
-│   └── InvokerMismatchError
+│   ├── InvokerMismatchError
+│   └── CapabilityExpiredError
 └── CaveatError
     └── UnknownCaveatError
 ```
@@ -555,17 +561,18 @@ class LinkedDataProof:
     verification_method: str        # DID URL
     created: str                    # ISO 8601
     proof_value: str                # multibase-z
+    proof_purpose: str = "capabilityDelegation"
     capability: Optional[str] = None
     capability_action: Optional[str] = None
-    proof_purpose: str = "capabilityDelegation"
+    capability_chain: Optional[tuple[str | dict, ...]] = None  # capabilityChain entries
 
 @dataclass(frozen=True)
 class Capability:
     id: str
-    controller: str
+    controller: str | list[str]    # string or array of DID strings
     parent_capability: Optional[str]   # None == this IS the root capability
     invocation_target: str
-    allowed_action: list[str]
+    allowed_action: Optional[list[str]]
     expires: Optional[datetime]
     invoker: Optional[str]             # if distinct from controller
     caveat: list[dict] = field(default_factory=list)
@@ -580,9 +587,10 @@ class Capability:
 @dataclass(frozen=True)
 class Invocation:
     id: str
-    capability: str           # references Capability.id
+    capability: str                              # references Capability.id (extracted from embedded dict if needed)
     invocation_target: str
     proof: LinkedDataProof
+    embedded_capability: Optional[Capability] = None  # parsed from embedded dict in 'capability' field
     raw: dict = field(default_factory=dict, compare=False)
 ```
 
@@ -603,11 +611,13 @@ class ZcapVerifier:
         target_attenuator: InvocationTargetAttenuator | None = None,
         allow_target_attenuation: bool = False,
         clock: Callable[[], datetime] | None = None,  # injectable for testing
+        proof_verifier: ProofVerifier | None = None,   # JCS default, or W3C
     ) -> None:
         self._caveats = CaveatRegistry(caveat_verifiers or [])
         self._attenuator = target_attenuator or PathPrefixAttenuator()
         self._allow_target_attenuation = allow_target_attenuation
-        self._clock = clock or (lambda: datetime.now(tz=timezone.utc))
+        self._clock = clock or (lambda: datetime.now(tz=UTC))
+        self._proof_verifier = proof_verifier
 
     def verify_delegation_chain(
         self,
@@ -620,10 +630,20 @@ class ZcapVerifier:
     def verify_invocation(
         self,
         invocation: Invocation,
-        capability: Capability,
-        chain: list[Capability] | None = None,
+        capability: Capability | None = None,  # None → use embedded_capability
+        chain: list[Capability] | None = None, # None → resolve from capabilityChain
     ) -> None:
-        """Raises ZcapError subclass on any violation."""
+        """Raises ZcapError subclass on any violation.
+
+        Performs in order:
+        1. Resolve capability from embedded if None
+        2. Resolve chain from capabilityChain if None
+        3. Verify delegation chain (if chain provided)
+        4. Chain-to-capability linkage (FR-INVOKE-08)
+        5. Absolute expiry check (FR-INVOKE-09)
+        6. Core invocation verification (FR-INVOKE-01 through FR-INVOKE-06)
+        7. Ancestor caveat enforcement (FR-INVOKE-07 extended)
+        """
         ...
 
 
@@ -707,7 +727,7 @@ class PathPrefixAttenuator:
       4. child path must begin with parent path after normalizing trailing slashes.
          Example: parent="/api/", child="/api/resource/123" → valid
          Example: parent="/api/resource", child="/api/" → invalid (broadening)
-      5. Query string and fragment may differ freely — child may add, change, or remove them.
+      5. If parent has a query string, child must preserve it exactly and may only extend with '&'-delimited params. If parent has no query, child may add one freely. Fragment may differ freely.
       6. Exact match (child == parent) is always valid.
       7. Broadening (child path outside parent path scope) is always invalid.
     """
@@ -727,7 +747,18 @@ class PathPrefixAttenuator:
         parent_path = p.path.rstrip("/") + "/"
         child_path = c.path.rstrip("/") + "/"
 
-        return child_path.startswith(parent_path)
+        if not child_path.startswith(parent_path):
+            return False
+
+        # Query string attenuation: if parent has a query, child must
+        # preserve it exactly and may only extend with '&' params.
+        if p.query:
+            if not c.query:
+                return False
+            if c.query != p.query and not c.query.startswith(p.query + "&"):
+                return False
+
+        return True
 ```
 
 **Fixture examples for path-prefix attenuation:**
@@ -739,7 +770,12 @@ class PathPrefixAttenuator:
 | `https://api.example.com/data/` | `https://api.example.com/`                | ❌     | Broadened        |
 | `https://api.example.com/data/` | `https://other.example.com/data/`         | ❌     | Different host   |
 | `https://api.example.com/data/` | `http://api.example.com/data/records/`    | ❌     | Different scheme |
-| `https://api.example.com/data/` | `https://api.example.com/data/q?filter=x` | ✅     | Query added      |
+| `https://api.example.com/data/` | `https://api.example.com/data/q?filter=x` | ✅     | Query added (parent has no query) |
+| `https://api.example.com/data/?tenant=a` | `https://api.example.com/data/?tenant=a` | ✅     | Exact query match |
+| `https://api.example.com/data/?tenant=a` | `https://api.example.com/data/?tenant=a&filter=x` | ✅     | Query extended with & |
+| `https://api.example.com/data/?tenant=a` | `https://api.example.com/data/?tenant=b` | ❌     | Different query value |
+| `https://api.example.com/data/?tenant=a` | `https://api.example.com/data/` | ❌     | Parent query dropped |
+| `https://api.example.com/data/?a=1` | `https://api.example.com/data/?a=12` | ❌     | Value prefix attack |
 
 ### 5.5 Delegation Verification Flow
 
@@ -767,23 +803,40 @@ verify_delegation_chain(root, [cap_a, cap_b])
 ### 5.6 Invocation Verification Flow
 
 ```
-verify_invocation(invocation, capability, chain=None)
+ZcapVerifier.verify_invocation(invocation, capability=None, chain=None)
 
-  1. If chain provided: verify_delegation_chain(root=chain[0], chain=chain[1:])
-  2. Assert invocation.proof.capability == capability.id      → InvocationError
-  3. Assert invocation.capability == capability.id            → InvocationError (body/proof mismatch)
-  4. Assert invocation.invocationTarget == capability.invocationTarget → InvocationError
-  5. Extract invoker_did = DID URL of invocation.proof.verificationMethod (strip fragment)
-  6. Assert invoker_did == (capability.invoker ?? capability.controller) → InvokerMismatchError
-  7. If invocation.proof.capabilityAction set:
-     Assert capabilityAction ∈ capability.allowedAction      → InvocationError
-  8. Resolve invoker_did → VerificationMethod → public key
-  9. JCS-canonicalize invocation document (proof copy, proofValue removed)
- 10. Ed25519.verify(canonical_bytes, proof_value, public_key) → SignatureVerificationError
- 11. For each caveat in capability.caveat:
-     Find registered CaveatVerifier by caveat["type"]
-     If not found: raise UnknownCaveatError
+  ── Resolve inputs ──
+  1. If capability is None: use invocation.embedded_capability      → InvocationError if also None
+  2. If chain is None and invocation.proof.capability_chain exists:
+     Resolve all-embedded chain entries via ZcapParser              → InvocationError on string refs
+
+  ── Chain verification ──
+  3. If chain provided: verify_delegation_chain(root=chain[0], chain=chain[1:])
+  4. FR-INVOKE-08: Assert chain[-1].id == capability.id             → InvocationError (linkage)
+
+  ── Absolute expiry ──
+  5. FR-INVOKE-09: For each cap in (chain ∪ {capability}):
+     Assert cap.expires is None OR cap.expires > now                → CapabilityExpiredError
+
+  ── Core invocation checks ──
+  6. Assert invocation.proof.capability == capability.id            → InvocationError
+  7. Assert invocation.capability == capability.id                  → InvocationError (body/proof mismatch)
+  8. Assert invocation.invocationTarget == capability.invocationTarget → InvocationError
+  9. Extract invoker_did = DID URL of invocation.proof.verificationMethod (strip fragment)
+ 10. Assert invoker_did == (capability.invoker ?? capability.controller) → InvokerMismatchError
+ 11. FR-INVOKE-05: If capability.allowedAction is not None:
+     Assert invocation.proof.capabilityAction is not None           → InvocationError
+     Assert capabilityAction ∈ capability.allowedAction             → InvocationError
+ 12. Cryptographic proof via proof_verifier (default: JCS)          → SignatureVerificationError
+ 13. For each caveat in capability.caveat:
+     Find registered CaveatVerifier by caveat["type"]               → UnknownCaveatError
      verifier.verify(caveat, invocation.raw)
+
+  ── Ancestor caveat enforcement ──
+ 14. FR-INVOKE-10: For each ancestor cap in chain[:-1]:
+     For each caveat in ancestor.caveat:
+       Find registered CaveatVerifier by caveat["type"]             → UnknownCaveatError
+       verifier.verify(caveat, invocation.raw)
 ```
 
 ### 5.7 JCS Canonicalization (RFC 8785)
@@ -1033,8 +1086,8 @@ from zcap_py import Capability, Invocation, VerificationMethod, LinkedDataProof
 # ---- Synchronous verifier ----
 from zcap_py import ZcapVerifier
 
-# ---- Asynchronous verifier ----
-from zcap_py import AsyncZcapVerifier
+# ---- Proof verification dispatch ----
+from zcap_py import ProofVerifier  # Callable[[dict], None] — JCS default, W3C optional
 
 # ---- Target attenuation ----
 from zcap_py import PathPrefixAttenuator, InvocationTargetAttenuator  # Protocol
@@ -1043,8 +1096,7 @@ from zcap_py import PathPrefixAttenuator, InvocationTargetAttenuator  # Protocol
 from zcap_py import canonicalize
 
 # ---- Caveat plugin protocols ----
-from zcap_py import CaveatVerifier        # sync Protocol
-from zcap_py import AsyncCaveatVerifier   # async Protocol
+from zcap_py import CaveatVerifier, CaveatRegistry
 
 # ---- Exceptions ----
 from zcap_py.exceptions import (
@@ -1062,6 +1114,7 @@ from zcap_py.exceptions import (
     ChainVerificationError,
     InvocationError,
     InvokerMismatchError,
+    CapabilityExpiredError,
     CaveatError,
     UnknownCaveatError,
 )

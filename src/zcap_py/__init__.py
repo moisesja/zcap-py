@@ -16,6 +16,7 @@ from zcap_py.did.url import ParsedDid, ParsedDidUrl, parse_did, parse_did_url, s
 from zcap_py.exceptions import (
     ActionAttenuationError,
     CanonicalizationError,
+    CapabilityExpiredError,
     CaveatError,
     ChainVerificationError,
     DelegationError,
@@ -39,9 +40,9 @@ from zcap_py.zcap.caveats import CaveatRegistry, CaveatVerifier
 from zcap_py.zcap.models import Capability, Invocation
 from zcap_py.zcap.parser import ZcapParser
 from zcap_py.zcap.target_attenuation import InvocationTargetAttenuator, PathPrefixAttenuator
-from zcap_py.zcap.verifier import ZcapVerifier
+from zcap_py.zcap.verifier import ProofVerifier, ZcapVerifier
 
-__version__ = "0.4.0"
+__version__ = "0.5.0"
 
 __all__ = [
     "__version__",
@@ -79,6 +80,7 @@ __all__ = [
     "CaveatRegistry",
     "InvocationTargetAttenuator",
     "PathPrefixAttenuator",
+    "ProofVerifier",
     # Exceptions
     "ZcapError",
     "ZcapParseError",
@@ -94,6 +96,7 @@ __all__ = [
     "ChainVerificationError",
     "InvocationError",
     "InvokerMismatchError",
+    "CapabilityExpiredError",
     "CaveatError",
     "UnknownCaveatError",
 ]

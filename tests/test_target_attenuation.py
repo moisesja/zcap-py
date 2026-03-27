@@ -83,6 +83,39 @@ class TestPathPrefixAttenuator:
     def test_not_a_url_returns_false(self) -> None:
         assert not self.att.is_valid_attenuation("not-a-url", "also-not-a-url")
 
+    # ── query string attenuation ──
+
+    def test_parent_query_child_same_query(self) -> None:
+        assert self.att.is_valid_attenuation(
+            "https://api.example.com/data/?tenant=a",
+            "https://api.example.com/data/?tenant=a",
+        )
+
+    def test_parent_query_child_extends_with_ampersand(self) -> None:
+        assert self.att.is_valid_attenuation(
+            "https://api.example.com/data/?tenant=a",
+            "https://api.example.com/data/?tenant=a&filter=x",
+        )
+
+    def test_parent_query_child_different_query(self) -> None:
+        assert not self.att.is_valid_attenuation(
+            "https://api.example.com/data/?tenant=a",
+            "https://api.example.com/data/?tenant=b",
+        )
+
+    def test_parent_query_child_drops_query(self) -> None:
+        assert not self.att.is_valid_attenuation(
+            "https://api.example.com/data/?tenant=a",
+            "https://api.example.com/data/",
+        )
+
+    def test_parent_query_child_value_prefix_attack(self) -> None:
+        """?a=1 must not accept ?a=12 (boundary check at &)."""
+        assert not self.att.is_valid_attenuation(
+            "https://api.example.com/data/?a=1",
+            "https://api.example.com/data/?a=12",
+        )
+
     # ── scheme case-insensitive ──
 
     def test_scheme_case_insensitive(self) -> None:
