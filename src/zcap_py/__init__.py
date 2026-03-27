@@ -33,11 +33,12 @@ from zcap_py.exceptions import (
 )
 from zcap_py.jcs.canonicalize import canonicalize
 from zcap_py.proof.ed25519_2020 import verify_document_proof
+from zcap_py.proof.ed25519_2020_w3c import verify_document_proof_w3c
 from zcap_py.proof.models import LinkedDataProof
 from zcap_py.zcap.models import Capability, Invocation
 from zcap_py.zcap.parser import ZcapParser
 
-__version__ = "0.2.0"
+__version__ = "0.3.0"
 
 __all__ = [
     "__version__",
@@ -65,6 +66,7 @@ __all__ = [
     # Proof
     "LinkedDataProof",
     "verify_document_proof",
+    "verify_document_proof_w3c",
     # ZCAP Models & Parser
     "Capability",
     "Invocation",

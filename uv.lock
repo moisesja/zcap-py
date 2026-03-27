@@ -827,7 +827,7 @@ wheels = [
 
 [[package]]
 name = "zcap-py"
-version = "0.2.0"
+version = "0.3.0"
 source = { editable = "." }
 dependencies = [
     { name = "cryptography" },
@@ -844,6 +844,7 @@ jsonld = [
 dev = [
     { name = "anyio", extra = ["trio"] },
     { name = "mypy" },
+    { name = "pyld" },
     { name = "pytest" },
     { name = "pytest-asyncio" },
     { name = "pytest-cov" },
@@ -863,6 +864,7 @@ provides-extras = ["jsonld"]
 dev = [
     { name = "anyio", extras = ["trio"], specifier = ">=4.0" },
     { name = "mypy", specifier = ">=1.10" },
+    { name = "pyld", specifier = ">=2.0" },
     { name = "pytest", specifier = ">=8.0" },
     { name = "pytest-asyncio", specifier = ">=0.23" },
     { name = "pytest-cov", specifier = ">=5.0" },

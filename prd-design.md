@@ -1395,6 +1395,10 @@ The path-prefix narrowing rules (same scheme, same authority, child path starts 
 
 Ed25519 verification is CPU-bound, not I/O-bound. The correct async wrapper is `asyncio.to_thread()`, which offloads CPU work to the default thread pool without blocking the event loop. This makes `AsyncZcapVerifier` a thin, correct wrapper over `ZcapVerifier` internals with no code duplication. Native async is reserved for `AsyncCaveatVerifier` implementations that may need to perform network I/O (e.g., checking a revocation registry). The `anyio` test backend confirms the async API works under both `asyncio` and `trio`.
 
+### 11.13 W3C URDNA2015 verifier as optional complement to JCS verifier
+
+The core JCS-based `verify_document_proof()` remains the default for `zcap-dotnet` interop. A new `verify_document_proof_w3c()` uses the real W3C Ed25519Signature2020 algorithm: URDNA2015 canonicalization of proof options and document separately, SHA-256 hash of each canonical form, concatenated into a 64-byte `verify_data`, then Ed25519 signature verification. This requires `pyld` which is gated behind the `jsonld` optional extra (`pip install zcap-py[jsonld]`). Bundled JSON-LD contexts (ZCAP v1, Ed25519Signature2020 v1) eliminate network I/O. Unknown context URLs raise `CanonicalizationError` (fail-closed). The two verifiers are intentionally incompatible: a JCS-signed document will not pass the W3C verifier, and vice versa.
+
 ---
 
 ## 12. Security Considerations

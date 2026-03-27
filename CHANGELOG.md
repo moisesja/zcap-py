@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Released]
 
+## [0.3.0] - 2026-03-26
+
+### Added
+
+- **W3C-Compliant Ed25519Signature2020 Verification (URDNA2015)**: `verify_document_proof_w3c()` implementing the real W3C Ed25519Signature2020 algorithm — dual URDNA2015 canonicalization (proof options + document), SHA-256 hash of each, concatenated into 64-byte verify_data, Ed25519 signature verification
+- **URDNA2015 Canonicalization**: `urdna2015_canonicalize()` wrapper around `pyld.jsonld.normalize()` with lazy import and clear error messages when `pyld` is not installed
+- **Offline JSON-LD Document Loader**: Bundled ZCAP v1 and Ed25519Signature2020 v1 JSON-LD contexts for zero-network-I/O URDNA2015 canonicalization. Unknown context URLs raise `CanonicalizationError` (fail-closed)
+- **Optional `jsonld` Extra**: `pip install zcap-py[jsonld]` installs `pyld>=2.0` for W3C URDNA2015 support. Core library remains importable without `pyld`
+- New optional dependency: `pyld>=2.0` (Digital Bazaar, BSD-3-Clause)
+
 ## [0.2.0] - 2026-03-26
 
 ### Added
