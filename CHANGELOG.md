@@ -13,13 +13,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Proof Dispatcher** (`verifier.py`): `ProofVerifier` type alias and `proof_verifier` parameter on `ZcapVerifier`, `verify_delegation_chain()`, and `verify_invocation()` — allows plugging in W3C URDNA2015 (`verify_document_proof_w3c`) or any custom `Callable[[dict], None]` verifier. Default remains JCS for backward compatibility
 - **Embedded Capabilities** (`parser.py`, `models.py`): Invocation `capability` field now accepts an embedded capability dict in addition to a string ID. Parsed embedded capabilities are stored as `Invocation.embedded_capability` and auto-resolved by `ZcapVerifier.verify_invocation()` when `capability=None`
-- **capabilityChain in Proof** (`models.py`, `parser.py`, `verifier.py`): `LinkedDataProof.capability_chain` field parses `proof.capabilityChain` arrays (string references + embedded dict entries). `ZcapVerifier` auto-resolves all-embedded chains; string references raise `InvocationError` (document loader not yet available)
+- **capabilityChain in Proof** (`models.py`, `parser.py`, `verifier.py`): `LinkedDataProof.capability_chain` field parses `proof.capabilityChain` arrays (string references + embedded dict entries). `ZcapVerifier` auto-resolves all-embedded chains; string references are resolved via the configured `document_loader` (raises `InvocationError` when no loader is configured)
+- **Document Loader** (`verifier.py`): `DocumentLoader` type alias (`Callable[[str], dict]`) and `document_loader` parameter on `ZcapVerifier` — enables resolution of string capability ID references in `capabilityChain` arrays per the W3C ZCAP-LD draft spec (root and ancestor capabilities referenced by ID, immediate parent embedded)
 - **Ancestor Caveat Enforcement** (`verifier.py`): All capabilities in a delegation chain (not just the leaf) now have their caveats verified against the invocation. Parent/intermediate caveats are inherited per the W3C ZCAP-LD draft spec
 - **Chain-to-Capability Linkage** (`verifier.py`): `ZcapVerifier.verify_invocation()` now validates that `chain[-1].id == capability.id`, ensuring the delegation chain actually terminates at the invoked capability
 - **Absolute Expiry Check** (`verifier.py`): `ZcapVerifier.verify_invocation()` checks all capabilities in the chain (plus the target capability) against the injected clock. Expired capabilities raise `CapabilityExpiredError`
 - **`CapabilityExpiredError`** (`exceptions.py`): New exception subclass of `InvocationError` for expired capabilities at invocation time
 - **`ProofVerifier`** type alias exported from `zcap_py` top-level package
-- 23 new tests: verifier facade (17 — expiry, linkage, ancestor caveats, proof dispatcher, embedded capabilities, capabilityChain), invocation (1 new, 1 updated), target attenuation (5 — query string)
+- **`DocumentLoader`** type alias exported from `zcap_py` top-level package
+- 25 new tests: verifier facade (19 — expiry, linkage, ancestor caveats, proof dispatcher, embedded capabilities, capabilityChain, document loader), invocation (1 new, 1 updated), target attenuation (5 — query string)
 
 ### Changed
 

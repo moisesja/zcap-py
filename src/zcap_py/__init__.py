@@ -40,7 +40,7 @@ from zcap_py.zcap.caveats import CaveatRegistry, CaveatVerifier
 from zcap_py.zcap.models import Capability, Invocation
 from zcap_py.zcap.parser import ZcapParser
 from zcap_py.zcap.target_attenuation import InvocationTargetAttenuator, PathPrefixAttenuator
-from zcap_py.zcap.verifier import ProofVerifier, ZcapVerifier
+from zcap_py.zcap.verifier import DocumentLoader, ProofVerifier, ZcapVerifier
 
 __version__ = "0.5.0"
 
@@ -81,6 +81,7 @@ __all__ = [
     "InvocationTargetAttenuator",
     "PathPrefixAttenuator",
     "ProofVerifier",
+    "DocumentLoader",
     # Exceptions
     "ZcapError",
     "ZcapParseError",

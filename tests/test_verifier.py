@@ -759,3 +759,101 @@ class TestCapabilityChainInProof:
         verifier = ZcapVerifier()
         # chain=None → auto-resolve from capabilityChain (all embedded)
         verifier.verify_invocation(inv, child)
+
+    def test_capability_chain_string_resolved_via_document_loader(self) -> None:
+        """String entries in capabilityChain are resolved via document_loader."""
+        alice = generate_ed25519_keypair()
+        bob = generate_ed25519_keypair()
+
+        root_raw = _make_root(alice.did)
+
+        child_raw = _make_delegated(
+            parent_id="urn:root:cap",
+            parent_key=alice.private_key,
+            parent_vm=alice.verification_method,
+            controller_did=bob.did,
+            actions=["read"],
+        )
+        child = parser.parse_capability(child_raw)
+
+        # Spec-compliant capabilityChain: root as string reference, child as embedded
+        inv_base: dict[str, object] = {
+            "@context": [
+                "https://w3id.org/zcap/v1",
+                "https://w3id.org/security/suites/ed25519-2020/v1",
+            ],
+            "id": "urn:uuid:invocation-1",
+            "type": "Invocation",
+            "capability": child.id,
+            "invocationTarget": "https://api.example.com/data/",
+        }
+        proof_metadata: dict[str, object] = {
+            "type": "Ed25519Signature2020",
+            "verificationMethod": bob.verification_method,
+            "created": "2026-01-01T00:00:00Z",
+            "proofPurpose": "capabilityInvocation",
+            "capability": child.id,
+            "capabilityAction": "read",
+            "capabilityChain": ["urn:root:cap", child_raw],
+        }
+        pv = make_proof_value(inv_base, proof_metadata, bob.private_key)
+        proof_dict: dict[str, object] = {**proof_metadata, "proofValue": pv}
+        inv_raw: dict[str, object] = {**inv_base, "proof": proof_dict}
+
+        inv = parser.parse_invocation(inv_raw)
+
+        # Loader maps root ID → root raw dict
+        store: dict[str, dict[str, object]] = {"urn:root:cap": root_raw}
+
+        def loader(cap_id: str) -> dict[str, object]:
+            return store[cap_id]
+
+        verifier = ZcapVerifier(document_loader=loader)
+        verifier.verify_invocation(inv, child)
+
+    def test_document_loader_error_propagates(self) -> None:
+        """Errors from document_loader propagate to the caller."""
+        alice = generate_ed25519_keypair()
+        bob = generate_ed25519_keypair()
+
+        child_raw = _make_delegated(
+            parent_id="urn:root:cap",
+            parent_key=alice.private_key,
+            parent_vm=alice.verification_method,
+            controller_did=bob.did,
+            actions=["read"],
+        )
+        child = parser.parse_capability(child_raw)
+
+        inv_base: dict[str, object] = {
+            "@context": [
+                "https://w3id.org/zcap/v1",
+                "https://w3id.org/security/suites/ed25519-2020/v1",
+            ],
+            "id": "urn:uuid:invocation-1",
+            "type": "Invocation",
+            "capability": child.id,
+            "invocationTarget": "https://api.example.com/data/",
+        }
+        proof_metadata: dict[str, object] = {
+            "type": "Ed25519Signature2020",
+            "verificationMethod": bob.verification_method,
+            "created": "2026-01-01T00:00:00Z",
+            "proofPurpose": "capabilityInvocation",
+            "capability": child.id,
+            "capabilityAction": "read",
+            "capabilityChain": ["urn:unknown:cap", child_raw],
+        }
+        pv = make_proof_value(inv_base, proof_metadata, bob.private_key)
+        proof_dict: dict[str, object] = {**proof_metadata, "proofValue": pv}
+        inv_raw: dict[str, object] = {**inv_base, "proof": proof_dict}
+
+        inv = parser.parse_invocation(inv_raw)
+
+        # Loader that doesn't know this ID
+        def failing_loader(cap_id: str) -> dict[str, object]:
+            raise KeyError(f"Unknown capability: {cap_id}")
+
+        verifier = ZcapVerifier(document_loader=failing_loader)
+        with pytest.raises(KeyError, match="Unknown capability"):
+            verifier.verify_invocation(inv, child)

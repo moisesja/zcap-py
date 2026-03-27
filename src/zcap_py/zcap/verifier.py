@@ -20,6 +20,7 @@ if TYPE_CHECKING:
     from zcap_py.zcap.models import Capability, Invocation
 
 ProofVerifier: TypeAlias = "Callable[[dict[str, object]], None]"
+DocumentLoader: TypeAlias = "Callable[[str], dict[str, object]]"
 
 
 class ZcapVerifier:
@@ -28,10 +29,19 @@ class ZcapVerifier:
     Accepts parsed :class:`Capability` / :class:`Invocation` models —
     parsing is the caller's responsibility (use :class:`ZcapParser`).
 
+    Parameters:
+        document_loader: Optional callable that resolves a capability ID
+            (string) to its raw dict representation.  Required for
+            spec-compliant ``capabilityChain`` arrays that contain string
+            references for root and ancestor capabilities.
+
     Example::
 
         parser = ZcapParser()
-        verifier = ZcapVerifier(allow_target_attenuation=True)
+        verifier = ZcapVerifier(
+            allow_target_attenuation=True,
+            document_loader=lambda cap_id: my_store.get(cap_id),
+        )
 
         root = parser.parse_capability(root_dict)
         cap  = parser.parse_capability(cap_dict)
@@ -48,12 +58,14 @@ class ZcapVerifier:
         allow_target_attenuation: bool = False,
         clock: Callable[[], datetime] | None = None,
         proof_verifier: ProofVerifier | None = None,
+        document_loader: DocumentLoader | None = None,
     ) -> None:
         self._caveats = CaveatRegistry(caveat_verifiers)
         self._attenuator = target_attenuator or PathPrefixAttenuator()
         self._allow_target_attenuation = allow_target_attenuation
         self._clock = clock or (lambda: datetime.now(tz=UTC))
         self._proof_verifier = proof_verifier
+        self._document_loader = document_loader
 
     def verify_delegation_chain(
         self,
@@ -87,9 +99,10 @@ class ZcapVerifier:
         is used (if present).
 
         If *chain* is ``None`` and the invocation proof contains a
-        ``capabilityChain``, embedded capability objects are resolved
-        automatically.  String entries in the chain require a document
-        loader and raise :class:`InvocationError`.
+        ``capabilityChain``, entries are resolved automatically: embedded
+        dicts are parsed directly, string references are resolved via
+        the configured ``document_loader``.  Without a loader, string
+        entries raise :class:`InvocationError`.
 
         If *chain* is provided, ``chain[0]`` is treated as the root and
         ``chain[1:]`` as the delegation chain; the chain is verified first.
@@ -167,11 +180,13 @@ class ZcapVerifier:
     ) -> list[Capability]:
         """Resolve capabilityChain entries into Capability objects.
 
-        Only embedded (dict) entries are supported.  String entries require
-        a document loader which is not yet implemented.
+        Embedded (dict) entries are parsed directly.  String entries are
+        resolved via the configured ``document_loader``.  If no loader is
+        configured, string entries raise :class:`InvocationError`.
 
         Raises:
-            InvocationError: If a chain entry is a string (unresolvable).
+            InvocationError: If a string entry is encountered without a
+                configured document loader.
         """
         from zcap_py.zcap.parser import ZcapParser
 
@@ -179,10 +194,14 @@ class ZcapVerifier:
         result: list[Capability] = []
         for i, entry in enumerate(chain_entries):
             if isinstance(entry, str):
-                raise InvocationError(
-                    f"capabilityChain[{i}] is a string reference '{entry}'; "
-                    "document loader required but not available",
-                    context={"index": i, "reference": entry},
-                )
-            result.append(p.parse_capability(entry))
+                if self._document_loader is None:
+                    raise InvocationError(
+                        f"capabilityChain[{i}] is a string reference '{entry}'; "
+                        "document loader required but not available",
+                        context={"index": i, "reference": entry},
+                    )
+                raw = self._document_loader(entry)
+                result.append(p.parse_capability(raw))
+            else:
+                result.append(p.parse_capability(entry))
         return result

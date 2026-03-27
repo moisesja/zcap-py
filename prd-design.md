@@ -218,7 +218,7 @@ The full delegation chain verification semantics:
 | FR-INVOKE-08 | **Chain-to-capability linkage.** When a delegation chain is provided, `chain[-1].id` must equal `capability.id`. Raise `InvocationError` if the chain does not terminate at the invoked capability   |
 | FR-INVOKE-09 | **Absolute expiry check.** All capabilities in the chain (plus the target capability) must be checked against the current clock. Raise `CapabilityExpiredError` if any have expired                  |
 | FR-INVOKE-10 | **Embedded capability resolution.** When `capability` is `None`, the verifier resolves it from `invocation.embedded_capability` (parsed from embedded dict in `capability` field)                    |
-| FR-INVOKE-11 | **capabilityChain resolution.** When `chain` is `None` and `invocation.proof.capability_chain` exists, resolve all-embedded chains automatically. String entries raise `InvocationError` (requires document loader) |
+| FR-INVOKE-11 | **capabilityChain resolution.** When `chain` is `None` and `invocation.proof.capability_chain` exists, resolve chain entries automatically: embedded dicts are parsed directly, string ID references are resolved via the configured `document_loader: Callable[[str], dict]`. Without a loader, string entries raise `InvocationError`. Per the W3C ZCAP-LD draft, chains use string references for root and ancestors, with only the immediate parent embedded |
 
 ### 3.7 Document Parsing (FR-PARSE)
 
@@ -612,12 +612,14 @@ class ZcapVerifier:
         allow_target_attenuation: bool = False,
         clock: Callable[[], datetime] | None = None,  # injectable for testing
         proof_verifier: ProofVerifier | None = None,   # JCS default, or W3C
+        document_loader: DocumentLoader | None = None, # resolve string cap IDs
     ) -> None:
         self._caveats = CaveatRegistry(caveat_verifiers or [])
         self._attenuator = target_attenuator or PathPrefixAttenuator()
         self._allow_target_attenuation = allow_target_attenuation
         self._clock = clock or (lambda: datetime.now(tz=UTC))
         self._proof_verifier = proof_verifier
+        self._document_loader = document_loader
 
     def verify_delegation_chain(
         self,
@@ -1088,6 +1090,9 @@ from zcap_py import ZcapVerifier
 
 # ---- Proof verification dispatch ----
 from zcap_py import ProofVerifier  # Callable[[dict], None] — JCS default, W3C optional
+
+# ---- Document loader (capabilityChain string reference resolution) ----
+from zcap_py import DocumentLoader  # Callable[[str], dict] — resolves cap ID → raw dict
 
 # ---- Target attenuation ----
 from zcap_py import PathPrefixAttenuator, InvocationTargetAttenuator  # Protocol
