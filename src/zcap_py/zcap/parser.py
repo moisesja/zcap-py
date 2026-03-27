@@ -31,9 +31,7 @@ def _parse_caveat_list(value: object) -> list[dict[str, object]]:
     if not isinstance(value, list):
         raise ZcapParseError("'caveat' must be an array", field="caveat")
     if not all(isinstance(c, dict) for c in value):
-        raise ZcapParseError(
-            "'caveat' entries must be objects", field="caveat"
-        )
+        raise ZcapParseError("'caveat' entries must be objects", field="caveat")
     return [dict(c) for c in value]
 
 

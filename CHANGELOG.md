@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Released]
 
+## [0.4.0] - 2026-03-26
+
+### Added
+
+- **Delegation Chain Verification** (`delegation.py`): Full FR-DELEG-01 through FR-DELEG-08 implementation — walks (parent, child) pairs verifying signer authority, `parentCapability` linkage, `allowedAction` subset enforcement, `expires` attenuation, `invocationTarget` attenuation, and cryptographic proof. Errors wrapped in `ChainVerificationError` with link index context
+- **Invocation Verification** (`invocation.py`): Full FR-INVOKE-01 through FR-INVOKE-07 implementation — validates `proof.capability` and body `capability` match, `invocationTarget` match, invoker identity (supports `capability.invoker` override and `controller` as `str | list[str]`), `capabilityAction` in `allowedAction`, cryptographic proof, and caveat dispatch
+- **Target Attenuation** (`target_attenuation.py`): `InvocationTargetAttenuator` `@runtime_checkable` Protocol and `PathPrefixAttenuator` built-in implementation — validates that child `invocationTarget` is a path-prefix narrowing of parent (same scheme, same authority, child path starts with parent path)
+- **Caveat Plugin System** (`caveats.py`): `CaveatVerifier` `@runtime_checkable` Protocol and `CaveatRegistry` — maps caveat types to verifier instances, fail-closed on unknown types (`UnknownCaveatError`), ships with zero built-in implementations per FR-CAVEAT-06
+- **ZcapVerifier Facade** (`verifier.py`): Synchronous verification facade wiring delegation chain verification, invocation verification, caveat registry, and target attenuation. Accepts optional `clock` extension point for future expiry-at-invocation-time checks
+- Re-exported `ZcapVerifier`, `CaveatVerifier`, `CaveatRegistry`, `InvocationTargetAttenuator`, `PathPrefixAttenuator` from top-level `zcap_py` package
+- 58 new tests covering delegation chains (19), invocation verification (14), target attenuation (15), caveat system (10)
+
 ## [0.3.0] - 2026-03-26
 
 ### Added
