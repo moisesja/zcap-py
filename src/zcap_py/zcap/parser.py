@@ -21,12 +21,20 @@ _ROOT_ALLOWED_FIELDS: frozenset[str] = frozenset(
 
 
 def _parse_caveat_list(value: object) -> list[dict[str, object]]:
-    """Extract caveat list from raw value, defaulting to empty list."""
+    """Parse caveat list, rejecting malformed entries.
+
+    Raises:
+        ZcapParseError: If value is not a list or contains non-object entries.
+    """
     if value is None:
         return []
     if not isinstance(value, list):
-        return []
-    return [dict(c) for c in value if isinstance(c, dict)]
+        raise ZcapParseError("'caveat' must be an array", field="caveat")
+    if not all(isinstance(c, dict) for c in value):
+        raise ZcapParseError(
+            "'caveat' entries must be objects", field="caveat"
+        )
+    return [dict(c) for c in value]
 
 
 class ZcapParser:

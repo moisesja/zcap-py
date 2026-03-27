@@ -136,6 +136,25 @@ class TestParseCapability:
         cap = parser.parse_capability(raw)
         assert len(cap.caveat) == 1
 
+    def test_caveat_not_list_raises_error(self) -> None:
+        parser = ZcapParser()
+        raw = _delegated_cap_base()
+        raw["caveat"] = "not-a-list"
+        with pytest.raises(ZcapParseError, match="caveat"):
+            parser.parse_capability(raw)
+
+    def test_caveat_non_object_entries_raises_error(self) -> None:
+        parser = ZcapParser()
+        raw = _delegated_cap_base()
+        raw["caveat"] = ["not-an-object"]
+        with pytest.raises(ZcapParseError, match="caveat"):
+            parser.parse_capability(raw)
+
+    def test_caveat_absent_defaults_to_empty(self) -> None:
+        parser = ZcapParser()
+        cap = parser.parse_capability(_delegated_cap_base())
+        assert cap.caveat == []
+
     def test_raw_dict_preserved(self) -> None:
         parser = ZcapParser()
         raw = _root_cap()
