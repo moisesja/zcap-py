@@ -1,4 +1,13 @@
-"""Ed25519Signature2020 proof verification."""
+"""JCS-based Ed25519Signature2020 proof verification (``zcap-dotnet`` interop).
+
+This module verifies Ed25519Signature2020 proofs using JCS (RFC 8785)
+canonicalization of the full document+proof payload.  This is **not** the
+W3C Ed25519Signature2020 algorithm, which requires URDNA2015
+canonicalization and SHA-256 hashing.
+
+For W3C-compliant verification see
+:func:`zcap_py.proof.ed25519_2020_w3c.verify_document_proof_w3c`.
+"""
 
 from __future__ import annotations
 
@@ -24,17 +33,14 @@ ED25519_SIGNATURE_LENGTH = 64
 
 
 def verify_document_proof(document: dict[str, object]) -> None:
-    """Verify the Ed25519Signature2020 proof on a document.
+    """Verify an Ed25519Signature2020 proof using JCS canonicalization.
 
-    Resolves the public key from ``proof.verificationMethod`` (key binding),
-    then verifies the Ed25519 signature against the JCS-canonicalized
-    document payload.
+    This is the JCS-based verification path for ``zcap-dotnet`` interoperability.
+    It is **not** the W3C Ed25519Signature2020 algorithm (which uses URDNA2015).
+    For W3C-compliant verification, use :func:`verify_document_proof_w3c`.
 
-    Per FR-PROOF-02: extract proof, remove proofValue from proof copy,
-    merge proof copy back into document, JCS-canonicalize, verify signature.
-
-    Per FR-PROOF-03: proof.verificationMethod must be a valid DID URL
-    encoding an Ed25519 public key.
+    Algorithm: extract proof, remove ``proofValue``, merge proof back into
+    document, JCS-canonicalize (RFC 8785), Ed25519-verify the canonical bytes.
 
     Raises:
         ProofError: If proof structure is malformed or verificationMethod
