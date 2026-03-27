@@ -31,9 +31,7 @@ def _parse_caveat_list(value: object) -> list[dict[str, object]]:
     if not isinstance(value, list):
         raise ZcapParseError("'caveat' must be an array", field="caveat")
     if not all(isinstance(c, dict) for c in value):
-        raise ZcapParseError(
-            "'caveat' entries must be objects", field="caveat"
-        )
+        raise ZcapParseError("'caveat' entries must be objects", field="caveat")
     return [dict(c) for c in value]
 
 
@@ -117,14 +115,37 @@ class ZcapParser:
     def parse_invocation(self, raw: dict[str, object]) -> Invocation:
         """Parse and validate a raw invocation dict (FR-PARSE-02).
 
+        The ``capability`` field may be a string (capability ID) or an
+        embedded capability object.  When embedded, the object is parsed
+        via :meth:`parse_capability` and stored as ``embedded_capability``.
+
         Raises:
             ZcapParseError: If any required field is missing or invalid.
         """
         self._validate_context(raw)
         self._require_str(raw, "id")
         self._require_type(raw, "Invocation")
-        self._require_str(raw, "capability")
         self._require_str(raw, "invocationTarget")
+
+        # capability — required, string or embedded object
+        cap_value = raw.get("capability")
+        embedded_capability: Capability | None = None
+        if isinstance(cap_value, dict):
+            cap_id_raw = cap_value.get("id")
+            if not isinstance(cap_id_raw, str) or not cap_id_raw.strip():
+                raise ZcapParseError(
+                    "Embedded capability must have a string 'id'",
+                    field="capability.id",
+                )
+            cap_id = cap_id_raw
+            embedded_capability = self.parse_capability(cap_value)
+        elif isinstance(cap_value, str) and cap_value.strip():
+            cap_id = cap_value
+        else:
+            raise ZcapParseError(
+                "Missing or invalid field 'capability'",
+                field="capability",
+            )
 
         # FR-PARSE-06: proof is mandatory on Invocation documents
         if "proof" not in raw:
@@ -140,9 +161,10 @@ class ZcapParser:
 
         return Invocation(
             id=str(raw["id"]),
-            capability=str(raw["capability"]),
+            capability=cap_id,
             invocation_target=str(raw["invocationTarget"]),
             proof=proof,
+            embedded_capability=embedded_capability,
             raw=dict(raw),
         )
 
@@ -388,6 +410,23 @@ class ZcapParser:
                 field="proof.proofPurpose",
             )
 
+        # capabilityChain — optional list of str/dict entries
+        capability_chain: tuple[str | dict[str, object], ...] | None = None
+        chain_raw = proof.get("capabilityChain")
+        if chain_raw is not None:
+            if not isinstance(chain_raw, list):
+                raise ZcapParseError(
+                    "'proof.capabilityChain' must be an array",
+                    field="proof.capabilityChain",
+                )
+            for i, entry in enumerate(chain_raw):
+                if not isinstance(entry, (str, dict)):
+                    raise ZcapParseError(
+                        f"'proof.capabilityChain[{i}]' must be a string or object",
+                        field="proof.capabilityChain",
+                    )
+            capability_chain = tuple(chain_raw)
+
         return LinkedDataProof(
             type=str(ptype),
             verification_method=str(vm),
@@ -398,4 +437,5 @@ class ZcapParser:
             capability_action=(
                 str(proof["capabilityAction"]) if proof.get("capabilityAction") else None
             ),
+            capability_chain=capability_chain,
         )

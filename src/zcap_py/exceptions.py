@@ -85,6 +85,10 @@ class InvokerMismatchError(InvocationError):
     """Raised when invoker DID does not match capability controller/invoker."""
 
 
+class CapabilityExpiredError(InvocationError):
+    """Raised when a capability has expired at invocation time."""
+
+
 # --- Caveats ---
 
 
