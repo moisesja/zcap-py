@@ -1,6 +1,6 @@
 [project]
 name = "zcap-py"
-version = "0.1.1"
+version = "0.3.0"
 description = "Authorization Capabilities for Linked Data — Python verification library"
 readme = "README.md"
 license = { text = "Apache-2.0" }
@@ -22,6 +22,7 @@ classifiers = [
 dependencies = [
     "cryptography>=41.0",
     "multiformats>=0.3.1",
+    "rfc8785>=0.1.4",
 ]
 
 [project.optional-dependencies]
@@ -35,6 +36,7 @@ dev = [
     "anyio[trio]>=4.0",
     "mypy>=1.10",
     "ruff>=0.4",
+    "pyld>=2.0",
 ]
 
 [project.urls]
@@ -55,6 +57,14 @@ mypy_path = "src"
 
 [[tool.mypy.overrides]]
 module = "multiformats.*"
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = "rfc8785.*"
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = "pyld.*"
 ignore_missing_imports = true
 
 [tool.ruff]

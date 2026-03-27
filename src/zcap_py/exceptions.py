@@ -33,7 +33,7 @@ class DidParseError(ZcapError):
 
 
 class CanonicalizationError(ZcapError):
-    """Raised when JCS canonicalization fails."""
+    """Raised when canonicalization fails (JCS or URDNA2015)."""
 
 
 # --- Proof ---
