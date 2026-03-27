@@ -16,7 +16,7 @@ class Capability:
     """A parsed ZCAP-LD capability (root or delegated)."""
 
     id: str
-    controller: str
+    controller: str | list[str]
     parent_capability: str | None
     invocation_target: str
     allowed_action: list[str] | None

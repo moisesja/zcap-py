@@ -14,6 +14,11 @@ from zcap_py.zcap.models import Capability, Invocation
 ED25519_SIGNATURE_LENGTH = 64
 ZCAP_CONTEXT_URL = "https://w3id.org/zcap/v1"
 
+# The spec says a root zcap "MUST NOT have any other fields" beyond these four.
+_ROOT_ALLOWED_FIELDS: frozenset[str] = frozenset(
+    {"@context", "id", "controller", "invocationTarget"}
+)
+
 
 def _parse_caveat_list(value: object) -> list[dict[str, object]]:
     """Extract caveat list from raw value, defaulting to empty list."""
@@ -34,39 +39,64 @@ class ZcapParser:
     def parse_capability(self, raw: dict[str, object]) -> Capability:
         """Parse and validate a raw capability dict (FR-PARSE-01).
 
-        Per the ZCAP-LD spec, a root capability requires only ``@context``,
-        ``id``, ``controller``, and ``invocationTarget``.  Fields like
-        ``type`` and ``allowedAction`` are optional (tolerated when present,
-        validated if so).
+        Root capabilities (no ``parentCapability``) are restricted to the
+        four spec-required fields: ``@context``, ``id``, ``controller``,
+        ``invocationTarget``.  Extra fields are rejected per the ZCAP-LD
+        spec's "MUST NOT have any other fields" constraint.
+
+        Delegated capabilities (``parentCapability`` present) may include
+        additional fields like ``type``, ``allowedAction``, ``expires``,
+        ``invoker``, ``caveat``, and ``proof``.
+
+        ``controller`` may be a single DID string or an array of DID strings.
 
         Raises:
             ZcapParseError: If any required field is missing or invalid.
         """
         self._validate_context(raw)
         self._require_str(raw, "id")
-        self._validate_optional_type(raw, "Authorization")
-        self._require_did(raw, "controller")
+        controller = self._require_controller(raw)
         self._require_str(raw, "invocationTarget")
 
-        # allowedAction is optional per spec; validated when present
-        allowed_action = self._parse_optional_action_list(raw)
+        is_root = "parentCapability" not in raw
 
+        if is_root:
+            # Spec: root zcap MUST NOT have any fields beyond the four required.
+            extra = set(raw.keys()) - _ROOT_ALLOWED_FIELDS
+            if extra:
+                raise ZcapParseError(
+                    f"Root capability has disallowed fields: {sorted(extra)}",
+                    field=", ".join(sorted(extra)),
+                )
+            return Capability(
+                id=str(raw["id"]),
+                controller=controller,
+                parent_capability=None,
+                invocation_target=str(raw["invocationTarget"]),
+                allowed_action=None,
+                expires=None,
+                invoker=None,
+                raw=dict(raw),
+            )
+
+        # ── Delegated capability ──
+        self._validate_optional_type(raw, "Authorization")
+        allowed_action = self._parse_optional_action_list(raw)
         expires = self._parse_expires(raw.get("expires"))
 
         parent_cap = raw.get("parentCapability")
-        if parent_cap is not None and (not isinstance(parent_cap, str) or not parent_cap.strip()):
+        if not isinstance(parent_cap, str) or not parent_cap.strip():
             raise ZcapParseError(
-                "'parentCapability' must be a non-empty string when present",
+                "'parentCapability' must be a non-empty string",
                 field="parentCapability",
             )
 
-        # FR-PARSE-06: proof is optional on Authorization documents
         proof = self._parse_proof(raw["proof"], "capabilityDelegation") if "proof" in raw else None
 
         return Capability(
             id=str(raw["id"]),
-            controller=str(raw["controller"]),
-            parent_capability=str(parent_cap) if parent_cap else None,
+            controller=controller,
+            parent_capability=str(parent_cap),
             invocation_target=str(raw["invocationTarget"]),
             allowed_action=allowed_action,
             expires=expires,
@@ -191,6 +221,44 @@ class ZcapParser:
                 f"Expected type '{expected}', got '{t}'",
                 field="type",
             )
+
+    @staticmethod
+    def _require_controller(d: dict[str, object]) -> str | list[str]:
+        """Parse ``controller`` — string or array of DID strings per spec."""
+        v = d.get("controller")
+        if isinstance(v, str):
+            if not v.strip():
+                raise ZcapParseError(
+                    "Missing or invalid field 'controller'",
+                    field="controller",
+                )
+            try:
+                parse_did(v)
+            except DidParseError as e:
+                raise ZcapParseError(
+                    f"Field 'controller' is not a valid DID: {v}",
+                    field="controller",
+                ) from e
+            return v
+        if isinstance(v, list):
+            if not v or not all(isinstance(s, str) for s in v):
+                raise ZcapParseError(
+                    "'controller' must be a non-empty string or array of DID strings",
+                    field="controller",
+                )
+            for item in v:
+                try:
+                    parse_did(item)
+                except DidParseError as e:
+                    raise ZcapParseError(
+                        f"'controller' contains invalid DID: {item}",
+                        field="controller",
+                    ) from e
+            return v
+        raise ZcapParseError(
+            "Missing or invalid field 'controller'",
+            field="controller",
+        )
 
     @staticmethod
     def _require_did(d: dict[str, object], field: str) -> str:

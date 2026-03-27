@@ -15,17 +15,30 @@ from zcap_py.zcap.parser import ZcapParser
 
 ALICE_DID = "did:key:z6MkhaXgBZDvotDkL5257faiztiGiC2QtKLGpbnnEGta2doK"
 ALICE_VM = f"{ALICE_DID}#z6MkhaXgBZDvotDkL5257faiztiGiC2QtKLGpbnnEGta2doK"
+BOB_DID = "did:key:z6MkpTHR8VNsBxYAAWHut2Geadd9jSwuBV8xRoAnwWsdvktH"
 
 
 def _root_cap() -> dict[str, object]:
+    """Spec-minimal root capability: only @context, id, controller, invocationTarget."""
+    return {
+        "@context": "https://w3id.org/zcap/v1",
+        "id": "https://resource.example/capabilities/root",
+        "controller": ALICE_DID,
+        "invocationTarget": "https://resource.example/api/",
+    }
+
+
+def _delegated_cap_base() -> dict[str, object]:
+    """Delegated capability base (no proof) for field validation tests."""
     return {
         "@context": [
             "https://w3id.org/zcap/v1",
             "https://w3id.org/security/suites/ed25519-2020/v1",
         ],
-        "id": "https://resource.example/capabilities/root",
+        "id": "urn:uuid:delegated-cap",
         "type": "Authorization",
         "controller": ALICE_DID,
+        "parentCapability": "https://resource.example/capabilities/root",
         "invocationTarget": "https://resource.example/api/",
         "allowedAction": ["read", "write"],
     }
@@ -111,14 +124,14 @@ class TestParseCapability:
 
     def test_invoker_parsed(self) -> None:
         parser = ZcapParser()
-        raw = _root_cap()
+        raw = _delegated_cap_base()
         raw["invoker"] = ALICE_DID
         cap = parser.parse_capability(raw)
         assert cap.invoker == ALICE_DID
 
     def test_caveat_parsed(self) -> None:
         parser = ZcapParser()
-        raw = _root_cap()
+        raw = _delegated_cap_base()
         raw["caveat"] = [{"type": "ExpiresCaveat"}]
         cap = parser.parse_capability(raw)
         assert len(cap.caveat) == 1
@@ -131,7 +144,7 @@ class TestParseCapability:
 
     def test_allowed_action_values(self) -> None:
         parser = ZcapParser()
-        cap = parser.parse_capability(_root_cap())
+        cap = parser.parse_capability(_delegated_cap_base())
         assert cap.allowed_action == ["read", "write"]
 
     # ── field validation errors ──
@@ -153,19 +166,19 @@ class TestParseCapability:
 
     def test_wrong_type_raises_error(self) -> None:
         parser = ZcapParser()
-        raw = _root_cap()
+        raw = _delegated_cap_base()
         raw["type"] = "Invocation"
         with pytest.raises(ZcapParseError, match="type") as exc_info:
             parser.parse_capability(raw)
         assert exc_info.value.field == "type"
 
     def test_missing_type_accepted(self) -> None:
-        """type is optional per spec — missing is valid for capabilities."""
+        """type is optional per spec — missing is valid for delegated capabilities."""
         parser = ZcapParser()
-        raw = _root_cap()
+        raw = _delegated_cap_base()
         del raw["type"]
         cap = parser.parse_capability(raw)
-        assert cap.id == "https://resource.example/capabilities/root"
+        assert cap.parent_capability is not None
 
     def test_invalid_controller_did_raises_error(self) -> None:
         parser = ZcapParser()
@@ -191,28 +204,28 @@ class TestParseCapability:
 
     def test_empty_allowed_action_raises_error(self) -> None:
         parser = ZcapParser()
-        raw = _root_cap()
+        raw = _delegated_cap_base()
         raw["allowedAction"] = []
         with pytest.raises(ZcapParseError, match="allowedAction"):
             parser.parse_capability(raw)
 
     def test_allowed_action_not_list_raises_error(self) -> None:
         parser = ZcapParser()
-        raw = _root_cap()
+        raw = _delegated_cap_base()
         raw["allowedAction"] = "read"
         with pytest.raises(ZcapParseError, match="allowedAction"):
             parser.parse_capability(raw)
 
     def test_allowed_action_non_string_items_raises_error(self) -> None:
         parser = ZcapParser()
-        raw = _root_cap()
+        raw = _delegated_cap_base()
         raw["allowedAction"] = [1, 2]
         with pytest.raises(ZcapParseError, match="allowedAction"):
             parser.parse_capability(raw)
 
     def test_invalid_expires_raises_error(self) -> None:
         parser = ZcapParser()
-        raw = _root_cap()
+        raw = _delegated_cap_base()
         raw["expires"] = "not-a-date"
         with pytest.raises(ZcapParseError, match="expires") as exc_info:
             parser.parse_capability(raw)
@@ -220,30 +233,30 @@ class TestParseCapability:
 
     def test_empty_parent_capability_raises_error(self) -> None:
         parser = ZcapParser()
-        raw = _root_cap()
+        raw = _delegated_cap_base()
         raw["parentCapability"] = "   "
         with pytest.raises(ZcapParseError, match="parentCapability"):
             parser.parse_capability(raw)
 
-    # ── proof sub-field validation ──
+    # ── proof sub-field validation (delegated caps) ──
 
     def test_proof_wrong_type_raises_error(self) -> None:
         parser = ZcapParser()
-        raw = _root_cap()
+        raw = _delegated_cap_base()
         raw["proof"] = {"type": "RsaSignature2018"}
         with pytest.raises(ZcapParseError, match="proof.type"):
             parser.parse_capability(raw)
 
     def test_proof_missing_verification_method_raises_error(self) -> None:
         parser = ZcapParser()
-        raw = _root_cap()
+        raw = _delegated_cap_base()
         raw["proof"] = {"type": "Ed25519Signature2020"}
         with pytest.raises(ZcapParseError, match="proof.verificationMethod"):
             parser.parse_capability(raw)
 
     def test_proof_invalid_verification_method_raises_error(self) -> None:
         parser = ZcapParser()
-        raw = _root_cap()
+        raw = _delegated_cap_base()
         raw["proof"] = {
             "type": "Ed25519Signature2020",
             "verificationMethod": "not-a-did-url",
@@ -253,7 +266,7 @@ class TestParseCapability:
 
     def test_proof_missing_created_raises_error(self) -> None:
         parser = ZcapParser()
-        raw = _root_cap()
+        raw = _delegated_cap_base()
         raw["proof"] = {
             "type": "Ed25519Signature2020",
             "verificationMethod": ALICE_VM,
@@ -263,7 +276,7 @@ class TestParseCapability:
 
     def test_proof_invalid_created_raises_error(self) -> None:
         parser = ZcapParser()
-        raw = _root_cap()
+        raw = _delegated_cap_base()
         raw["proof"] = {
             "type": "Ed25519Signature2020",
             "verificationMethod": ALICE_VM,
@@ -274,7 +287,7 @@ class TestParseCapability:
 
     def test_proof_missing_proof_value_raises_error(self) -> None:
         parser = ZcapParser()
-        raw = _root_cap()
+        raw = _delegated_cap_base()
         raw["proof"] = {
             "type": "Ed25519Signature2020",
             "verificationMethod": ALICE_VM,
@@ -285,7 +298,7 @@ class TestParseCapability:
 
     def test_proof_value_not_multibase_z_raises_error(self) -> None:
         parser = ZcapParser()
-        raw = _root_cap()
+        raw = _delegated_cap_base()
         raw["proof"] = {
             "type": "Ed25519Signature2020",
             "verificationMethod": ALICE_VM,
@@ -299,7 +312,7 @@ class TestParseCapability:
         from zcap_py.crypto.multibase import base58btc_encode
 
         parser = ZcapParser()
-        raw = _root_cap()
+        raw = _delegated_cap_base()
         raw["proof"] = {
             "type": "Ed25519Signature2020",
             "verificationMethod": ALICE_VM,
@@ -448,19 +461,22 @@ class TestContextValidation:
 
     def test_context_as_string_accepted(self) -> None:
         parser = ZcapParser()
+        cap = parser.parse_capability(_root_cap())
+        assert cap.id == "https://resource.example/capabilities/root"
+
+    def test_context_as_array_accepted(self) -> None:
+        parser = ZcapParser()
         raw: dict[str, object] = {
-            "@context": "https://w3id.org/zcap/v1",
+            "@context": [
+                "https://w3id.org/zcap/v1",
+                "https://w3id.org/security/suites/ed25519-2020/v1",
+            ],
             "id": "urn:example:root",
             "controller": ALICE_DID,
             "invocationTarget": "https://example.com/api",
         }
         cap = parser.parse_capability(raw)
         assert cap.id == "urn:example:root"
-
-    def test_context_as_array_accepted(self) -> None:
-        parser = ZcapParser()
-        cap = parser.parse_capability(_root_cap())
-        assert cap.id == "https://resource.example/capabilities/root"
 
     def test_context_wrong_url_raises_error(self) -> None:
         parser = ZcapParser()
@@ -491,46 +507,37 @@ class TestSpecRootCapability:
     def test_spec_minimal_root_cap_parses(self) -> None:
         """Root cap with only the 4 spec-required fields parses successfully."""
         parser = ZcapParser()
-        raw: dict[str, object] = {
-            "@context": "https://w3id.org/zcap/v1",
-            "id": "urn:example:root",
-            "controller": ALICE_DID,
-            "invocationTarget": "https://example.com/api",
-        }
-        cap = parser.parse_capability(raw)
+        cap = parser.parse_capability(_root_cap())
         assert cap.is_root is True
         assert cap.allowed_action is None
         assert cap.proof is None
 
     def test_root_cap_without_type_parses(self) -> None:
         parser = ZcapParser()
-        raw: dict[str, object] = {
-            "@context": "https://w3id.org/zcap/v1",
-            "id": "urn:example:root",
-            "controller": ALICE_DID,
-            "invocationTarget": "https://example.com/api",
-        }
-        cap = parser.parse_capability(raw)
-        assert cap.id == "urn:example:root"
+        cap = parser.parse_capability(_root_cap())
+        assert cap.id == "https://resource.example/capabilities/root"
 
     def test_root_cap_without_allowed_action_parses(self) -> None:
         parser = ZcapParser()
+        cap = parser.parse_capability(_root_cap())
+        assert cap.allowed_action is None
+
+    def test_root_cap_with_extra_fields_rejected(self) -> None:
+        """Root caps MUST NOT have fields beyond @context, id, controller, invocationTarget."""
+        parser = ZcapParser()
         raw: dict[str, object] = {
             "@context": "https://w3id.org/zcap/v1",
             "id": "urn:example:root",
             "controller": ALICE_DID,
             "invocationTarget": "https://example.com/api",
+            "type": "Authorization",
+            "allowedAction": ["read"],
         }
-        cap = parser.parse_capability(raw)
-        assert cap.allowed_action is None
-
-    def test_root_cap_with_type_and_allowed_action_still_parses(self) -> None:
-        """Extra fields are tolerated (not rejected) on root caps."""
-        parser = ZcapParser()
-        cap = parser.parse_capability(_root_cap())
-        assert cap.allowed_action == ["read", "write"]
+        with pytest.raises(ZcapParseError, match="disallowed fields"):
+            parser.parse_capability(raw)
 
     def test_root_cap_wrong_type_rejected(self) -> None:
+        """Extra field 'type' on root is rejected as disallowed field."""
         parser = ZcapParser()
         raw: dict[str, object] = {
             "@context": "https://w3id.org/zcap/v1",
@@ -539,8 +546,73 @@ class TestSpecRootCapability:
             "controller": ALICE_DID,
             "invocationTarget": "https://example.com/api",
         }
-        with pytest.raises(ZcapParseError, match="type"):
+        with pytest.raises(ZcapParseError, match="disallowed fields"):
             parser.parse_capability(raw)
+
+
+# ── Controller as string or array ──
+
+
+class TestControllerArray:
+    def test_controller_as_string_accepted(self) -> None:
+        parser = ZcapParser()
+        cap = parser.parse_capability(_root_cap())
+        assert cap.controller == ALICE_DID
+
+    def test_controller_as_array_accepted(self) -> None:
+        parser = ZcapParser()
+        raw: dict[str, object] = {
+            "@context": "https://w3id.org/zcap/v1",
+            "id": "urn:example:root",
+            "controller": [ALICE_DID, BOB_DID],
+            "invocationTarget": "https://example.com/api",
+        }
+        cap = parser.parse_capability(raw)
+        assert isinstance(cap.controller, list)
+        assert len(cap.controller) == 2
+        assert cap.controller[0] == ALICE_DID
+        assert cap.controller[1] == BOB_DID
+
+    def test_controller_empty_array_raises_error(self) -> None:
+        parser = ZcapParser()
+        raw: dict[str, object] = {
+            "@context": "https://w3id.org/zcap/v1",
+            "id": "urn:example:root",
+            "controller": [],
+            "invocationTarget": "https://example.com/api",
+        }
+        with pytest.raises(ZcapParseError, match="controller"):
+            parser.parse_capability(raw)
+
+    def test_controller_array_with_invalid_did_raises_error(self) -> None:
+        parser = ZcapParser()
+        raw: dict[str, object] = {
+            "@context": "https://w3id.org/zcap/v1",
+            "id": "urn:example:root",
+            "controller": [ALICE_DID, "not-a-did"],
+            "invocationTarget": "https://example.com/api",
+        }
+        with pytest.raises(ZcapParseError, match="controller"):
+            parser.parse_capability(raw)
+
+    def test_controller_array_with_non_string_items_raises_error(self) -> None:
+        parser = ZcapParser()
+        raw: dict[str, object] = {
+            "@context": "https://w3id.org/zcap/v1",
+            "id": "urn:example:root",
+            "controller": [ALICE_DID, 42],
+            "invocationTarget": "https://example.com/api",
+        }
+        with pytest.raises(ZcapParseError, match="controller"):
+            parser.parse_capability(raw)
+
+    def test_controller_as_array_on_delegated_cap(self) -> None:
+        parser = ZcapParser()
+        raw = _delegated_cap_base()
+        raw["controller"] = [ALICE_DID, BOB_DID]
+        cap = parser.parse_capability(raw)
+        assert isinstance(cap.controller, list)
+        assert len(cap.controller) == 2
 
 
 # ── parse_*_from_json ──
