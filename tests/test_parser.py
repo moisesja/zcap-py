@@ -57,9 +57,15 @@ def _invocation_with_proof() -> dict[str, object]:
         "capability": "urn:uuid:delegated-cap",
         "invocationTarget": "https://resource.example/api/docs/1",
     }
-    return make_signed_document(
+    signed = make_signed_document(
         base, kp.private_key, kp.verification_method, "capabilityInvocation"
     )
+    # Invocation proofs must carry capability and capabilityAction per ZCAP-LD spec
+    proof = dict(signed["proof"])  # type: ignore[arg-type]
+    proof["capability"] = "urn:uuid:delegated-cap"
+    proof["capabilityAction"] = "read"
+    signed["proof"] = proof
+    return signed
 
 
 # ── parse_capability ──
@@ -345,11 +351,81 @@ class TestParseInvocation:
         with pytest.raises(ZcapParseError, match="type"):
             parser.parse_invocation(raw)
 
+    def test_invocation_proof_purpose_is_capability_invocation(self) -> None:
+        parser = ZcapParser()
+        inv = parser.parse_invocation(_invocation_with_proof())
+        assert inv.proof.proof_purpose == "capabilityInvocation"
+
+    def test_invocation_proof_capability_parsed(self) -> None:
+        parser = ZcapParser()
+        inv = parser.parse_invocation(_invocation_with_proof())
+        assert inv.proof.capability == "urn:uuid:delegated-cap"
+
+    def test_missing_proof_purpose_raises_error(self) -> None:
+        parser = ZcapParser()
+        raw = _invocation_with_proof()
+        proof = dict(raw["proof"])  # type: ignore[arg-type]
+        del proof["proofPurpose"]
+        raw["proof"] = proof
+        with pytest.raises(ZcapParseError, match="proof.proofPurpose"):
+            parser.parse_invocation(raw)
+
+    def test_wrong_proof_purpose_raises_error(self) -> None:
+        """Invocation with proofPurpose=capabilityDelegation must be rejected."""
+        parser = ZcapParser()
+        raw = _invocation_with_proof()
+        proof = dict(raw["proof"])  # type: ignore[arg-type]
+        proof["proofPurpose"] = "capabilityDelegation"
+        raw["proof"] = proof
+        with pytest.raises(ZcapParseError, match="proofPurpose"):
+            parser.parse_invocation(raw)
+
+    def test_missing_capability_in_invocation_proof_raises_error(self) -> None:
+        """Invocation proof without 'capability' must be rejected."""
+        parser = ZcapParser()
+        raw = _invocation_with_proof()
+        proof = dict(raw["proof"])  # type: ignore[arg-type]
+        del proof["capability"]
+        raw["proof"] = proof
+        with pytest.raises(ZcapParseError, match="capability"):
+            parser.parse_invocation(raw)
+
     def test_raw_dict_preserved(self) -> None:
         parser = ZcapParser()
         raw = _invocation_with_proof()
         inv = parser.parse_invocation(raw)
         assert inv.raw["id"] == raw["id"]
+
+
+# ── Capability proof proofPurpose validation ──
+
+
+class TestCapabilityProofPurpose:
+    def test_delegation_proof_purpose_accepted(self) -> None:
+        parser = ZcapParser()
+        raw = _delegated_cap_with_proof()
+        cap = parser.parse_capability(raw)
+        assert cap.proof is not None
+        assert cap.proof.proof_purpose == "capabilityDelegation"
+
+    def test_missing_proof_purpose_on_capability_raises_error(self) -> None:
+        parser = ZcapParser()
+        raw = _delegated_cap_with_proof()
+        proof = dict(raw["proof"])  # type: ignore[arg-type]
+        del proof["proofPurpose"]
+        raw["proof"] = proof
+        with pytest.raises(ZcapParseError, match="proof.proofPurpose"):
+            parser.parse_capability(raw)
+
+    def test_wrong_proof_purpose_on_capability_raises_error(self) -> None:
+        """Capability with proofPurpose=capabilityInvocation must be rejected."""
+        parser = ZcapParser()
+        raw = _delegated_cap_with_proof()
+        proof = dict(raw["proof"])  # type: ignore[arg-type]
+        proof["proofPurpose"] = "capabilityInvocation"
+        raw["proof"] = proof
+        with pytest.raises(ZcapParseError, match="proofPurpose"):
+            parser.parse_capability(raw)
 
 
 # ── parse_*_from_json ──

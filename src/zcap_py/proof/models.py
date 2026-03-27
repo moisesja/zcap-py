@@ -13,6 +13,6 @@ class LinkedDataProof:
     verification_method: str
     created: str
     proof_value: str
+    proof_purpose: str
     capability: str | None = None
     capability_action: str | None = None
-    proof_purpose: str = "capabilityDelegation"

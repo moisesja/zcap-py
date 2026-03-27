@@ -51,7 +51,7 @@ class ZcapParser:
             )
 
         # FR-PARSE-06: proof is optional on Authorization documents
-        proof = self._parse_proof(raw["proof"]) if "proof" in raw else None
+        proof = self._parse_proof(raw["proof"], "capabilityDelegation") if "proof" in raw else None
 
         return Capability(
             id=str(raw["id"]),
@@ -80,7 +80,14 @@ class ZcapParser:
         # FR-PARSE-06: proof is mandatory on Invocation documents
         if "proof" not in raw:
             raise ZcapParseError("Missing required 'proof' field", field="proof")
-        proof = self._parse_proof(raw["proof"])
+        proof = self._parse_proof(raw["proof"], "capabilityInvocation")
+
+        # ZCAP-LD spec: invocation proofs must carry a capability reference
+        if proof.capability is None:
+            raise ZcapParseError(
+                "Invocation proof must include 'capability'",
+                field="proof.capability",
+            )
 
         return Invocation(
             id=str(raw["id"]),
@@ -180,7 +187,7 @@ class ZcapParser:
             ) from e
 
     @staticmethod
-    def _parse_proof(proof: object) -> LinkedDataProof:
+    def _parse_proof(proof: object, expected_purpose: str) -> LinkedDataProof:
         if not isinstance(proof, dict):
             raise ZcapParseError("'proof' must be an object", field="proof")
 
@@ -243,14 +250,29 @@ class ZcapParser:
                 field="proof.proofValue",
             )
 
+        # proofPurpose — required, must match the expected purpose for the
+        # document type (capabilityDelegation for Authorization,
+        # capabilityInvocation for Invocation).
+        pp = proof.get("proofPurpose")
+        if not isinstance(pp, str) or not pp.strip():
+            raise ZcapParseError(
+                "Missing required 'proof.proofPurpose'",
+                field="proof.proofPurpose",
+            )
+        if pp != expected_purpose:
+            raise ZcapParseError(
+                f"Expected proofPurpose '{expected_purpose}', got '{pp}'",
+                field="proof.proofPurpose",
+            )
+
         return LinkedDataProof(
             type=str(ptype),
             verification_method=str(vm),
             created=str(created),
             proof_value=str(pv),
+            proof_purpose=str(pp),
             capability=str(proof["capability"]) if proof.get("capability") else None,
             capability_action=(
                 str(proof["capabilityAction"]) if proof.get("capabilityAction") else None
             ),
-            proof_purpose=str(proof.get("proofPurpose", "capabilityDelegation")),
         )

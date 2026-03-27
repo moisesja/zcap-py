@@ -32,18 +32,20 @@ class TestLinkedDataProof:
             verification_method="did:key:z6Mk...#z6Mk...",
             created="2026-01-01T00:00:00Z",
             proof_value="zSig...",
+            proof_purpose="capabilityDelegation",
         )
         with pytest.raises(AttributeError):
             proof.type = "other"  # type: ignore[misc]
 
-    def test_default_proof_purpose(self) -> None:
+    def test_proof_purpose_required(self) -> None:
         proof = LinkedDataProof(
             type="Ed25519Signature2020",
             verification_method="did:key:z6Mk...#z6Mk...",
             created="2026-01-01T00:00:00Z",
             proof_value="zSig...",
+            proof_purpose="capabilityInvocation",
         )
-        assert proof.proof_purpose == "capabilityDelegation"
+        assert proof.proof_purpose == "capabilityInvocation"
 
     def test_optional_fields_default_none(self) -> None:
         proof = LinkedDataProof(
@@ -51,6 +53,7 @@ class TestLinkedDataProof:
             verification_method="did:key:z6Mk...#z6Mk...",
             created="2026-01-01T00:00:00Z",
             proof_value="zSig...",
+            proof_purpose="capabilityDelegation",
         )
         assert proof.capability is None
         assert proof.capability_action is None
