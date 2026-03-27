@@ -19,7 +19,7 @@ class Capability:
     controller: str
     parent_capability: str | None
     invocation_target: str
-    allowed_action: list[str]
+    allowed_action: list[str] | None
     expires: datetime | None
     invoker: str | None
     caveat: list[dict[str, object]] = field(default_factory=list)

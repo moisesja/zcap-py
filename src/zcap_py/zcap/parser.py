@@ -12,6 +12,7 @@ from zcap_py.proof.models import LinkedDataProof
 from zcap_py.zcap.models import Capability, Invocation
 
 ED25519_SIGNATURE_LENGTH = 64
+ZCAP_CONTEXT_URL = "https://w3id.org/zcap/v1"
 
 
 def _parse_caveat_list(value: object) -> list[dict[str, object]]:
@@ -33,14 +34,23 @@ class ZcapParser:
     def parse_capability(self, raw: dict[str, object]) -> Capability:
         """Parse and validate a raw capability dict (FR-PARSE-01).
 
+        Per the ZCAP-LD spec, a root capability requires only ``@context``,
+        ``id``, ``controller``, and ``invocationTarget``.  Fields like
+        ``type`` and ``allowedAction`` are optional (tolerated when present,
+        validated if so).
+
         Raises:
             ZcapParseError: If any required field is missing or invalid.
         """
+        self._validate_context(raw)
         self._require_str(raw, "id")
-        self._require_type(raw, "Authorization")
+        self._validate_optional_type(raw, "Authorization")
         self._require_did(raw, "controller")
         self._require_str(raw, "invocationTarget")
-        self._require_action_list(raw, "allowedAction")
+
+        # allowedAction is optional per spec; validated when present
+        allowed_action = self._parse_optional_action_list(raw)
+
         expires = self._parse_expires(raw.get("expires"))
 
         parent_cap = raw.get("parentCapability")
@@ -58,7 +68,7 @@ class ZcapParser:
             controller=str(raw["controller"]),
             parent_capability=str(parent_cap) if parent_cap else None,
             invocation_target=str(raw["invocationTarget"]),
-            allowed_action=self._require_action_list(raw, "allowedAction"),
+            allowed_action=allowed_action,
             expires=expires,
             invoker=str(raw["invoker"]) if raw.get("invoker") else None,
             caveat=_parse_caveat_list(raw.get("caveat")),
@@ -72,6 +82,7 @@ class ZcapParser:
         Raises:
             ZcapParseError: If any required field is missing or invalid.
         """
+        self._validate_context(raw)
         self._require_str(raw, "id")
         self._require_type(raw, "Invocation")
         self._require_str(raw, "capability")
@@ -140,9 +151,42 @@ class ZcapParser:
         return v
 
     @staticmethod
+    def _validate_context(d: dict[str, object]) -> None:
+        """Validate that ``@context`` is present and includes the ZCAP-LD URL."""
+        ctx = d.get("@context")
+        if ctx is None:
+            raise ZcapParseError(
+                "Missing required '@context' field",
+                field="@context",
+            )
+        if isinstance(ctx, str):
+            if ctx != ZCAP_CONTEXT_URL:
+                raise ZcapParseError(
+                    f"'@context' must be or start with '{ZCAP_CONTEXT_URL}'",
+                    field="@context",
+                )
+            return
+        if isinstance(ctx, list) and ctx and ctx[0] == ZCAP_CONTEXT_URL:
+            return
+        raise ZcapParseError(
+            f"'@context' must be or start with '{ZCAP_CONTEXT_URL}'",
+            field="@context",
+        )
+
+    @staticmethod
     def _require_type(d: dict[str, object], expected: str) -> None:
         t = d.get("type")
         if t != expected:
+            raise ZcapParseError(
+                f"Expected type '{expected}', got '{t}'",
+                field="type",
+            )
+
+    @staticmethod
+    def _validate_optional_type(d: dict[str, object], expected: str) -> None:
+        """Validate ``type`` only if present — it is optional per spec."""
+        t = d.get("type")
+        if t is not None and t != expected:
             raise ZcapParseError(
                 f"Expected type '{expected}', got '{t}'",
                 field="type",
@@ -163,12 +207,15 @@ class ZcapParser:
         return v
 
     @staticmethod
-    def _require_action_list(d: dict[str, object], field: str) -> list[str]:
-        v = d.get(field)
+    def _parse_optional_action_list(d: dict[str, object]) -> list[str] | None:
+        """Parse ``allowedAction`` — optional per spec, validated when present."""
+        v = d.get("allowedAction")
+        if v is None:
+            return None
         if not isinstance(v, list) or not v or not all(isinstance(a, str) for a in v):
             raise ZcapParseError(
-                f"'{field}' must be a non-empty list of strings",
-                field=field,
+                "'allowedAction' must be a non-empty list of strings",
+                field="allowedAction",
             )
         return v
 

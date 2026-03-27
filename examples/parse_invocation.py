@@ -11,6 +11,10 @@ keypair = generate_ed25519_keypair()
 
 # Build a signed invocation
 inv_body = {
+    "@context": [
+        "https://w3id.org/zcap/v1",
+        "https://w3id.org/security/suites/ed25519-2020/v1",
+    ],
     "id": "urn:example:inv-1",
     "type": "Invocation",
     "capability": "urn:example:root-cap",

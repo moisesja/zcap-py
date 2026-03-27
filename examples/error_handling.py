@@ -16,7 +16,9 @@ except DidParseError as e:
 
 # ZcapParseError includes the offending field name
 try:
-    ZcapParser().parse_capability({"type": "Authorization"})
+    ZcapParser().parse_capability(
+        {"@context": "https://w3id.org/zcap/v1", "id": "", "type": "Authorization"}
+    )
 except ZcapParseError as e:
     print(e.field)  # "id"
     print(e.message)  # "Missing or invalid field 'id'"
