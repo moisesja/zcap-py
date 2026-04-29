@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Released]
 
+## [Unreleased]
+
+### Added
+
+- **Cross-language JCS interop fixture + regression test** (issue [#5](https://github.com/moisesja/zcap-py/issues/5)): `tests/fixtures/cross_lang_jcs/{capability_v1,invocation_v1}.json` — known-answer test vectors covering a delegated `Capability` (with `caveat[]`, `parentCapability`, `expires`, populated `capabilityChain`) and an `Invocation`. Each fixture pins the Ed25519 seed, signed wire-format document, and SHA-256 of the JCS canonical bytes that went into `private_key.sign(...)`. Proofs include an extra `nonce` field so the regression catches future field-stripping divergence.
+- `tests/test_cross_language_interop.py` — four parametrized cases that assert (a) the JCS canonical bytes hash to the fixture's `jcs_sha256_hex`, and (b) the signature verifies under `verify_document_proof`. A failure pinpoints whether the bytes diverged or the algorithm side disagrees.
+- `examples/generate_cross_lang_fixture.py` — reproducible generator that re-emits both fixtures byte-for-byte from committed inputs (deterministic seed + timestamps). Companion to [moisesja/zcap-dotnet#34](https://github.com/moisesja/zcap-dotnet/issues/34); zcap-dotnet's test re-derives the canonical bytes during its own run and asserts the SHA-256 matches.
+
 ## [0.5.0] - 2026-03-26
 
 ### Added
