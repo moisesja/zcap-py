@@ -19,8 +19,7 @@ from pathlib import Path
 
 import pytest
 
-from zcap_py.jcs.canonicalize import canonicalize
-from zcap_py.proof.ed25519_2020 import verify_document_proof
+from zcap_py.proof.ed25519_2020 import build_canonical_payload, verify_document_proof
 
 FIXTURE_DIR = Path(__file__).parent / "fixtures" / "cross_lang_jcs"
 FIXTURE_FILES = ["capability_v1.json", "invocation_v1.json"]
@@ -37,12 +36,7 @@ def test_signature_canonicalizes_to_known_jcs_bytes(fixture: dict[str, object]) 
     fixture's ``jcs_sha256_hex``. A mismatch means the two libraries built
     different signing payloads (e.g. wrapped vs flat shape)."""
     on_wire = json.loads(fixture["document"])  # type: ignore[arg-type]
-    proof = on_wire["proof"]
-    proof_copy = {k: v for k, v in proof.items() if k != "proofValue"}
-    doc_to_verify = {k: v for k, v in on_wire.items() if k != "proof"}
-    doc_to_verify["proof"] = proof_copy
-
-    canonical = canonicalize(doc_to_verify)
+    canonical = build_canonical_payload(on_wire, on_wire["proof"])
     assert hashlib.sha256(canonical).hexdigest() == fixture["jcs_sha256_hex"]
 
 

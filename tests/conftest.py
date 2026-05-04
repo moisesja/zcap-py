@@ -6,8 +6,8 @@ import hashlib
 from typing import TYPE_CHECKING
 
 from zcap_py.crypto.multibase import base58btc_encode
-from zcap_py.jcs.canonicalize import canonicalize
 from zcap_py.jsonld.canonicalize import urdna2015_canonicalize
+from zcap_py.proof.ed25519_2020 import sign_document_proof
 
 if TYPE_CHECKING:
     from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
@@ -18,14 +18,11 @@ def make_proof_value(
     proof_metadata: dict[str, object],
     private_key: Ed25519PrivateKey,
 ) -> str:
-    """Sign a document and return multibase-z proofValue."""
-    doc_with_proof_meta: dict[str, object] = {
-        **document_without_proof,
-        "proof": proof_metadata,
-    }
-    canonical = canonicalize(doc_with_proof_meta)
-    signature = private_key.sign(canonical)
-    return base58btc_encode(signature)
+    """Sign a document and return its multibase-z proofValue."""
+    signed = sign_document_proof(document_without_proof, proof_metadata, private_key)
+    proof = signed["proof"]
+    assert isinstance(proof, dict)
+    return str(proof["proofValue"])
 
 
 def make_signed_document(
@@ -41,9 +38,7 @@ def make_signed_document(
         "created": "2026-01-01T00:00:00Z",
         "proofPurpose": proof_purpose,
     }
-    pv = make_proof_value(document_without_proof, proof_metadata, private_key)
-    proof: dict[str, object] = {**proof_metadata, "proofValue": pv}
-    return {**document_without_proof, "proof": proof}
+    return sign_document_proof(document_without_proof, proof_metadata, private_key)
 
 
 def make_misbound_document(
@@ -64,9 +59,7 @@ def make_misbound_document(
         "created": "2026-01-01T00:00:00Z",
         "proofPurpose": proof_purpose,
     }
-    pv = make_proof_value(document_without_proof, proof_metadata, signing_key)
-    proof: dict[str, object] = {**proof_metadata, "proofValue": pv}
-    return {**document_without_proof, "proof": proof}
+    return sign_document_proof(document_without_proof, proof_metadata, signing_key)
 
 
 # ── W3C (URDNA2015) helpers ──

@@ -22,9 +22,8 @@ from pathlib import Path
 
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
-from zcap_py.crypto.multibase import base58btc_encode
 from zcap_py.did.key import encode_did_key
-from zcap_py.jcs.canonicalize import canonicalize
+from zcap_py.proof.ed25519_2020 import build_canonical_payload, sign_document_proof
 
 # ── Pinned deterministic inputs (test-only) ──
 
@@ -44,14 +43,14 @@ def _sign_document(
     proof_metadata: dict[str, object],
     private_key: Ed25519PrivateKey,
 ) -> tuple[dict[str, object], str]:
-    """Mirror ``tests/conftest.make_proof_value``: JCS over body+proof-minus-proofValue,
-    Ed25519-sign, base58btc-encode. Returns ``(wire_document, jcs_sha256_hex)``.
+    """Sign via the public API and return ``(wire_document, jcs_sha256_hex)``.
+
+    The hash is computed over the same canonical bytes ``sign_document_proof``
+    feeds into ``private_key.sign(...)``, so re-canonicalizing the signed wire
+    document (minus ``proofValue``) reproduces this digest exactly.
     """
-    to_sign = {**body, "proof": proof_metadata}
-    canonical = canonicalize(to_sign)
-    signature = private_key.sign(canonical)
-    proof = {**proof_metadata, "proofValue": base58btc_encode(signature)}
-    wire = {**body, "proof": proof}
+    canonical = build_canonical_payload(body, proof_metadata)
+    wire = sign_document_proof(body, proof_metadata, private_key)
     return wire, hashlib.sha256(canonical).hexdigest()
 
 

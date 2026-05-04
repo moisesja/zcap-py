@@ -7,13 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Released]
 
-## [Unreleased]
+## [0.6.0] - 2026-05-04
 
 ### Added
 
+- **Public W3C-flat payload helper + signing API** (issue [#6](https://github.com/moisesja/zcap-py/issues/6)): `build_canonical_payload(document, proof) -> bytes` returns the JCS canonical bytes any conformant Ed25519Signature2020 verifier would re-compute for a given `(document, proof)` pair (proof copy minus `proofValue`, merged into document, JCS-canonicalized per RFC 8785). `sign_document_proof(document_without_proof, proof_metadata, private_key) -> dict` signs and returns the wire-ready document — round-trips through `verify_document_proof` byte-for-byte. Both functions live in `zcap_py.proof.ed25519_2020` and are re-exported from the top-level `zcap_py` package. Symmetric with `zcap-dotnet 2.1.0`'s `ProofSigningPayloadBuilder`; closes the public-surface gap that forced `zcap-interop-fixtures` and downstream signers to copy-paste the assembly.
+- `tests/test_public_proof_api.py` — three cases pinning the contract: `proofValue` is stripped, supplied `proof` argument overrides any `document["proof"]`, and signed documents verify byte-for-byte through the verifier.
 - **Cross-language JCS interop fixture + regression test** (issue [#5](https://github.com/moisesja/zcap-py/issues/5)): `tests/fixtures/cross_lang_jcs/{capability_v1,invocation_v1}.json` — known-answer test vectors covering a delegated `Capability` (with `caveat[]`, `parentCapability`, `expires`, populated `capabilityChain`) and an `Invocation`. Each fixture pins the Ed25519 seed, signed wire-format document, and SHA-256 of the JCS canonical bytes that went into `private_key.sign(...)`. Proofs include an extra `nonce` field so the regression catches future field-stripping divergence.
 - `tests/test_cross_language_interop.py` — four parametrized cases that assert (a) the JCS canonical bytes hash to the fixture's `jcs_sha256_hex`, and (b) the signature verifies under `verify_document_proof`. A failure pinpoints whether the bytes diverged or the algorithm side disagrees.
 - `examples/generate_cross_lang_fixture.py` — reproducible generator that re-emits both fixtures byte-for-byte from committed inputs (deterministic seed + timestamps). Companion to [moisesja/zcap-dotnet#34](https://github.com/moisesja/zcap-dotnet/issues/34); zcap-dotnet's test re-derives the canonical bytes during its own run and asserts the SHA-256 matches.
+
+### Changed
+
+- `verify_document_proof` (`src/zcap_py/proof/ed25519_2020.py`): the inlined "copy proof minus `proofValue`, merge into document, JCS-canonicalize" assembly is now a single call to the new public `build_canonical_payload`. Behaviour and wire bytes are unchanged (verified by re-generating issue #5 fixtures and confirming SHA-256 stability).
+- `tests/conftest.py` helpers (`make_proof_value`, `make_signed_document`, `make_misbound_document`) are now thin shims over the public `sign_document_proof`; signatures preserved so existing test modules are untouched.
+- `examples/generate_cross_lang_fixture.py` now demonstrates the public API by calling `build_canonical_payload` and `sign_document_proof` directly instead of inlining the assembly.
 
 ## [0.5.0] - 2026-03-26
 
