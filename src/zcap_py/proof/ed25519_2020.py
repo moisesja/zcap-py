@@ -15,7 +15,7 @@ from typing import TYPE_CHECKING
 
 from cryptography.exceptions import InvalidSignature
 
-from zcap_py.crypto.multibase import base58btc_decode
+from zcap_py.crypto.multibase import base58btc_decode, base58btc_encode
 from zcap_py.did.key import public_key_from_did_key
 from zcap_py.exceptions import (
     DidParseError,
@@ -26,10 +26,58 @@ from zcap_py.exceptions import (
 from zcap_py.jcs.canonicalize import canonicalize
 
 if TYPE_CHECKING:
-    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import (
+        Ed25519PrivateKey,
+        Ed25519PublicKey,
+    )
 
 PROOF_TYPE = "Ed25519Signature2020"
 ED25519_SIGNATURE_LENGTH = 64
+
+
+def build_canonical_payload(
+    document: dict[str, object],
+    proof: dict[str, object],
+) -> bytes:
+    """Return the JCS canonical bytes a verifier would compute for a given
+    ``(document, proof)`` pair.
+
+    Algorithm: copy ``proof`` minus ``proofValue``, merge into ``document``
+    (replacing any existing ``proof`` field), JCS-canonicalize per RFC 8785.
+    The returned bytes are what a conformant Ed25519Signature2020 signer
+    must sign and what any conformant verifier re-canonicalizes from the
+    wire body before verifying.
+
+    Caller may pass either the wire document (with ``proof``) or the body
+    alone — the existing ``document["proof"]`` is dropped either way.
+    """
+    proof_minus_pv = {k: v for k, v in proof.items() if k != "proofValue"}
+    payload: dict[str, object] = {k: v for k, v in document.items() if k != "proof"}
+    payload["proof"] = proof_minus_pv
+    return canonicalize(payload)
+
+
+def sign_document_proof(
+    document_without_proof: dict[str, object],
+    proof_metadata: dict[str, object],
+    private_key: Ed25519PrivateKey,
+) -> dict[str, object]:
+    """Sign ``document_without_proof`` under ``proof_metadata`` and return the
+    wire-ready signed document.
+
+    ``proof_metadata`` must include the standard Data Integrity fields
+    (``type``, ``created``, ``proofPurpose``, ``verificationMethod``) plus
+    any kind-specific fields (``capabilityChain``, ``capability``,
+    ``capabilityAction``, ``invocationTarget``, …). It must NOT include
+    ``proofValue`` — this function computes and appends it.
+
+    The returned document verifies under :func:`verify_document_proof`
+    byte-for-byte.
+    """
+    canonical = build_canonical_payload(document_without_proof, proof_metadata)
+    signature = private_key.sign(canonical)
+    proof: dict[str, object] = {**proof_metadata, "proofValue": base58btc_encode(signature)}
+    return {**document_without_proof, "proof": proof}
 
 
 def verify_document_proof(document: dict[str, object]) -> None:
@@ -53,11 +101,7 @@ def verify_document_proof(document: dict[str, object]) -> None:
     sig_bytes = _decode_proof_value(proof)
     public_key = _resolve_verification_key(proof)
 
-    # Build verification payload: document with proof copy minus proofValue
-    proof_copy = {k: v for k, v in proof.items() if k != "proofValue"}
-    doc_to_verify: dict[str, object] = {k: v for k, v in document.items() if k != "proof"}
-    doc_to_verify["proof"] = proof_copy
-    canonical = canonicalize(doc_to_verify)
+    canonical = build_canonical_payload(document, proof)
 
     try:
         public_key.verify(sig_bytes, canonical)
