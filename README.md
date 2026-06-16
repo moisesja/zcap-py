@@ -42,16 +42,24 @@ pip install zcap-py
 ## Quick Start
 
 ```python
-from zcap_py import generate_ed25519_keypair, verify_document_proof
-from zcap_py import canonicalize, base58btc_encode
+from zcap_py import (
+    generate_ed25519_keypair,
+    sign_document_proof_w3c,
+    verify_document_proof_w3c,
+)
 
 # Generate a did:key keypair
 keypair = generate_ed25519_keypair()
 print(keypair.did)                  # did:key:z6Mk...
 print(keypair.verification_method)  # did:key:z6Mk...#z6Mk...
 
-# Sign a document with an Ed25519Signature2020 proof
+# Sign a document with a W3C Ed25519Signature2020 (URDNA2015) proof.
+# An @context is required so the document can be JSON-LD canonicalized.
 document = {
+    "@context": [
+        "https://w3id.org/zcap/v1",
+        "https://w3id.org/security/suites/ed25519-2020/v1",
+    ],
     "id": "urn:example:cap-1",
     "type": "Authorization",
     "controller": keypair.did,
@@ -64,12 +72,10 @@ proof_metadata = {
     "created": "2026-01-01T00:00:00Z",
     "proofPurpose": "capabilityDelegation",
 }
-to_sign = {**document, "proof": proof_metadata}
-signature = keypair.private_key.sign(canonicalize(to_sign))
-signed = {**document, "proof": {**proof_metadata, "proofValue": base58btc_encode(signature)}}
+signed = sign_document_proof_w3c(document, proof_metadata, keypair.private_key)
 
 # Verify — resolves the public key from proof.verificationMethod automatically
-verify_document_proof(signed)
+verify_document_proof_w3c(signed)
 ```
 
 ## Examples
@@ -102,7 +108,11 @@ uv run python examples/key_generation.py
 
 ## Project Status
 
-This library is in active development. Phase 1 (crypto & DID foundation) and Phase 2 (JCS canonicalization, proof verification, document parsing) are complete. Upcoming phases will add delegation chain verification, invocation verification, and async support.
+This library is in active development, tracking full [W3C ZCAP-LD](https://w3c-ccg.github.io/zcap-spec/) / digitalbazaar compliance. See [`COMPLIANCE.md`](COMPLIANCE.md) for the requirement-by-requirement matrix and open issues.
+
+Proof verification uses the W3C `Ed25519Signature2020` (URDNA2015) algorithm and is believed byte-compatible with the digitalbazaar ecosystem; a cross-implementation known-answer test against a digitalbazaar-generated proof is still pending ([#14](https://github.com/moisesja/zcap-py/issues/14)).
+
+> ⚠️ **Security — invocation path is not yet secure-by-default.** Until [#9](https://github.com/moisesja/zcap-py/issues/9) and [#12](https://github.com/moisesja/zcap-py/issues/12) land, `verify_invocation` does not require the invoked delegated capability to be anchored to a cryptographically verified chain, and the standalone `verify_delegation_chain` does no absolute-expiry check ([#20](https://github.com/moisesja/zcap-py/issues/20)). Do not rely on the invocation path for trust decisions yet — always pass and verify a full, root-anchored `chain`.
 
 ## Reference Specification
 

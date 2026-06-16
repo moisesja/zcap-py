@@ -161,6 +161,10 @@ def verify_delegation_chain(
         return
 
     # Enforce chain-length bound BEFORE any per-link cryptographic verification.
+    # ``total`` counts the full chain: the root trust anchor + every delegation.
+    # @digitalbazaar/zcap's maxChainLength bounds the dereferenced capabilityChain
+    # (which includes the root by reference); if it instead counted delegations
+    # only, this gate would be one stricter — a safe direction, never looser.
     total = len(chain) + 1  # +1 for the root trust anchor
     if total > max_chain_length:
         raise ChainVerificationError(

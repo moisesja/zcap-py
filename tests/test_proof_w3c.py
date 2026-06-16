@@ -189,6 +189,18 @@ class TestSignDocumentProofW3C:
         with pytest.raises(ProofError, match="@context"):
             verify_document_proof_w3c(no_ctx)
 
+    def test_sign_strips_stray_proof_key(self) -> None:
+        """A document that still carries a ``proof`` key still round-trips."""
+        kp = generate_ed25519_keypair()
+        doc_with_stale_proof = {**W3C_SAMPLE_DOC, "proof": {"type": "stale"}}
+        signed = sign_document_proof_w3c(
+            doc_with_stale_proof, self._meta(kp.verification_method), kp.private_key
+        )
+        proof = signed["proof"]
+        assert isinstance(proof, dict)
+        assert proof["type"] == "Ed25519Signature2020"  # stale proof replaced
+        verify_document_proof_w3c(signed)
+
 
 # ── Context loader errors ──
 

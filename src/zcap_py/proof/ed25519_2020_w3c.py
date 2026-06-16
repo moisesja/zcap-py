@@ -94,11 +94,17 @@ def sign_document_proof_w3c(
         ProofError: If the document has no ``@context``.
         CanonicalizationError: If ``pyld`` is unavailable or URDNA2015 fails.
     """
-    proof_options = _build_proof_options(document_without_proof, proof_metadata)
-    verify_data = _compute_verify_data(document_without_proof, proof_options)
+    # Drop any stray ``proof`` so the signed bytes match what a verifier
+    # re-canonicalizes (document minus proof); otherwise the result would not
+    # round-trip through verify_document_proof_w3c.
+    document_body: dict[str, object] = {
+        k: v for k, v in document_without_proof.items() if k != "proof"
+    }
+    proof_options = _build_proof_options(document_body, proof_metadata)
+    verify_data = _compute_verify_data(document_body, proof_options)
     signature = private_key.sign(verify_data)
     proof: dict[str, object] = {**proof_metadata, "proofValue": base58btc_encode(signature)}
-    return {**document_without_proof, "proof": proof}
+    return {**document_body, "proof": proof}
 
 
 def verify_document_proof_w3c(document: dict[str, object]) -> None:

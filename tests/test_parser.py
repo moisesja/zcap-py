@@ -251,6 +251,15 @@ class TestParseCapability:
             parser.parse_capability(raw)
         assert exc_info.value.field == "expires"
 
+    def test_delegated_capability_missing_expires_raises(self) -> None:
+        """expires is REQUIRED on delegated capabilities (spec MUST)."""
+        parser = ZcapParser()
+        raw = _delegated_cap_base()
+        del raw["expires"]
+        with pytest.raises(ZcapParseError, match="expires") as exc_info:
+            parser.parse_capability(raw)
+        assert exc_info.value.field == "expires"
+
     def test_empty_parent_capability_raises_error(self) -> None:
         parser = ZcapParser()
         raw = _delegated_cap_base()
