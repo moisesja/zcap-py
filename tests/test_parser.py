@@ -41,6 +41,7 @@ def _delegated_cap_base() -> dict[str, object]:
         "parentCapability": "https://resource.example/capabilities/root",
         "invocationTarget": "https://resource.example/api/",
         "allowedAction": ["read", "write"],
+        "expires": "2026-12-31T00:00:00Z",
     }
 
 

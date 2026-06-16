@@ -47,6 +47,7 @@ delegated = {
     "parentCapability": "urn:example:root-cap",
     "invocationTarget": "https://api.example.com/docs",
     "allowedAction": ["read", "write"],
+    "expires": "2026-12-31T00:00:00Z",  # required on delegated capabilities
 }
 cap3 = parser.parse_capability(delegated)
 print(cap3.allowed_action)  # ["read", "write"]

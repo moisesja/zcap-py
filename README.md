@@ -15,9 +15,7 @@ A minimal, production-quality Python library implementing the [W3C Authorization
 - `did:key` encoding, decoding, and resolution (Ed25519 only)
 - Multibase-z (base58btc) and multicodec support
 - Strict DID URL parsing and validation
-- RFC 8785 / JCS canonicalization
-- Ed25519Signature2020 proof verification (JCS-based for `zcap-dotnet` interop)
-- W3C-compliant Ed25519Signature2020 proof verification (URDNA2015, optional `pyld` dependency)
+- W3C `Ed25519Signature2020` proof signing and verification (URDNA2015 + dual SHA-256), interoperable with the `@digitalbazaar/zcap` ecosystem
 - ZCAP-LD document parsing (Capability & Invocation)
 - Typed exception hierarchy for controlled error handling
 - 100% type-annotated public API (`mypy --strict` compliant)
@@ -35,10 +33,10 @@ Or with [uv](https://docs.astral.sh/uv/):
 uv add zcap-py
 ```
 
-For W3C-compliant URDNA2015 proof verification, install with the `jsonld` extra:
+W3C URDNA2015 proof verification works out of the box (`pyld` is a core dependency):
 
 ```bash
-pip install zcap-py[jsonld]
+pip install zcap-py
 ```
 
 ## Quick Start
@@ -86,9 +84,7 @@ Runnable examples are in the [`examples/`](examples/) directory:
 | [`encode_decode_did_key.py`](examples/encode_decode_did_key.py) | Convert between raw key bytes and `did:key` strings |
 | [`parse_did_url.py`](examples/parse_did_url.py) | Strict DID and DID URL parsing |
 | [`multibase_multicodec.py`](examples/multibase_multicodec.py) | Low-level multibase/multicodec utilities |
-| [`jcs_canonicalization.py`](examples/jcs_canonicalization.py) | RFC 8785 / JCS canonicalization |
-| [`verify_proof_jcs.py`](examples/verify_proof_jcs.py) | JCS-based proof verification (`zcap-dotnet` interop) |
-| [`verify_proof_w3c.py`](examples/verify_proof_w3c.py) | W3C URDNA2015 proof verification (requires `pyld`) |
+| [`verify_proof_w3c.py`](examples/verify_proof_w3c.py) | W3C URDNA2015 `Ed25519Signature2020` proof verification |
 | [`parse_capability.py`](examples/parse_capability.py) | Parse and validate ZCAP-LD capabilities |
 | [`parse_invocation.py`](examples/parse_invocation.py) | Parse and validate ZCAP-LD invocations |
 | [`error_handling.py`](examples/error_handling.py) | Structured exception handling |
@@ -102,8 +98,7 @@ uv run python examples/key_generation.py
 ## Requirements
 
 - Python 3.11+
-- Runtime dependencies: `cryptography>=41.0`, `multiformats>=0.3.1`, `rfc8785>=0.1.4`
-- Optional: `pyld>=2.0` (for W3C URDNA2015 proof verification — install with `pip install zcap-py[jsonld]`)
+- Runtime dependencies: `cryptography>=41.0`, `multiformats>=0.3.1`, `pyld>=2.0`
 
 ## Project Status
 

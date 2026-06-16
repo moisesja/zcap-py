@@ -1,6 +1,6 @@
 """URDNA2015 (RDF Dataset Canonicalization) via ``pyld``.
 
-Requires the ``jsonld`` optional extra: ``pip install zcap-py[jsonld]``
+``pyld`` is a core dependency of ``zcap-py``.
 """
 
 from __future__ import annotations
@@ -19,8 +19,8 @@ def _get_pyld_jsonld() -> Any:  # noqa: ANN401
         return jsonld
     except ImportError:
         raise CanonicalizationError(
-            "pyld is required for W3C URDNA2015 canonicalization. "
-            "Install it with: pip install zcap-py[jsonld]",
+            "pyld is required for W3C URDNA2015 canonicalization but is not "
+            "installed; reinstall zcap-py to pull its dependencies.",
         ) from None
 
 

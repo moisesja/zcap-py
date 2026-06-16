@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING
 
 from zcap_py.did.url import strip_did_fragment
 from zcap_py.exceptions import InvocationError, InvokerMismatchError
-from zcap_py.proof.ed25519_2020 import verify_document_proof
+from zcap_py.proof.ed25519_2020_w3c import verify_document_proof_w3c
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -103,8 +103,8 @@ def verify_invocation(
                 },
             )
 
-    # FR-INVOKE-06: Cryptographic proof verification
-    (proof_verifier or verify_document_proof)(invocation.raw)
+    # FR-INVOKE-06: Cryptographic proof verification (W3C URDNA2015 by default)
+    (proof_verifier or verify_document_proof_w3c)(invocation.raw)
 
     # FR-INVOKE-07: Caveat verification
     if caveat_registry is not None and capability.caveat:

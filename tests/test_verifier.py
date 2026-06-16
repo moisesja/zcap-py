@@ -16,9 +16,7 @@ from zcap_py.crypto.ed25519 import generate_ed25519_keypair
 from zcap_py.exceptions import (
     CapabilityExpiredError,
     CaveatError,
-    ChainVerificationError,
     InvocationError,
-    SignatureVerificationError,
 )
 from zcap_py.proof.ed25519_2020_w3c import verify_document_proof_w3c
 from zcap_py.zcap.parser import ZcapParser
@@ -63,8 +61,8 @@ def _make_delegated(
     }
     if actions is not None:
         base["allowedAction"] = actions
-    if expires is not None:
-        base["expires"] = expires
+    # Delegated capabilities MUST have expires; default to far-future when unset.
+    base["expires"] = expires if expires is not None else "2099-01-01T00:00:00Z"
     if caveat is not None:
         base["caveat"] = caveat
     return make_signed_document(base, parent_key, parent_vm)  # type: ignore[arg-type]
@@ -155,7 +153,8 @@ class TestExpiryAtInvocationTime:
 
         verifier.verify_invocation(inv, child, chain=[root, child])
 
-    def test_no_expires_passes(self) -> None:
+    def test_unexpired_chain_passes(self) -> None:
+        """Root (no expires) is skipped and an unexpired child passes the clock."""
         alice = generate_ed25519_keypair()
         bob = generate_ed25519_keypair()
 
@@ -166,14 +165,14 @@ class TestExpiryAtInvocationTime:
             parent_vm=alice.verification_method,
             controller_did=bob.did,
             actions=["read"],
-        )
+        )  # child expires far in the future (2099)
         child = parser.parse_capability(child_raw)
 
         inv_raw = _make_invocation(bob.private_key, bob.verification_method, cap_id=child.id)
         inv = parser.parse_invocation(inv_raw)
 
         verifier = ZcapVerifier(
-            clock=lambda: datetime(2099, 1, 1, tzinfo=UTC),
+            clock=lambda: datetime(2030, 1, 1, tzinfo=UTC),
         )
 
         verifier.verify_invocation(inv, child, chain=[root, child])
@@ -388,6 +387,7 @@ class TestAncestorCaveatEnforcement:
             "parentCapability": "urn:root:cap",
             "invocationTarget": "https://api.example.com/data/",
             "allowedAction": ["read"],
+            "expires": "2099-01-01T00:00:00Z",
         }
         cap = parser.parse_capability(cap_raw)
 
@@ -423,6 +423,7 @@ def _make_w3c_delegated(
         "controller": controller_did,
         "parentCapability": parent_id,
         "invocationTarget": target,
+        "expires": "2099-01-01T00:00:00Z",
     }
     if actions is not None:
         base["allowedAction"] = actions
@@ -484,29 +485,8 @@ class TestProofDispatcher:
         verifier = ZcapVerifier(proof_verifier=verify_document_proof_w3c)
         verifier.verify_invocation(inv, child, chain=[root, child])
 
-    def test_default_jcs_verifier_backward_compat(self) -> None:
-        """Default (no proof_verifier) uses JCS — backward compatible."""
-        alice = generate_ed25519_keypair()
-        bob = generate_ed25519_keypair()
-
-        root = parser.parse_capability(_make_root(alice.did))
-        child_raw = _make_delegated(
-            parent_id=root.id,
-            parent_key=alice.private_key,
-            parent_vm=alice.verification_method,
-            controller_did=bob.did,
-            actions=["read"],
-        )
-        child = parser.parse_capability(child_raw)
-
-        inv_raw = _make_invocation(bob.private_key, bob.verification_method, cap_id=child.id)
-        inv = parser.parse_invocation(inv_raw)
-
-        verifier = ZcapVerifier()  # No proof_verifier — default JCS
-        verifier.verify_invocation(inv, child, chain=[root, child])
-
-    def test_w3c_signed_fails_with_jcs_verifier(self) -> None:
-        """W3C-signed doc should fail with default JCS verifier (mismatch)."""
+    def test_default_verifier_is_w3c_urdna2015(self) -> None:
+        """The default verifier (no proof_verifier) is W3C URDNA2015."""
         alice = generate_ed25519_keypair()
         bob = generate_ed25519_keypair()
 
@@ -523,10 +503,8 @@ class TestProofDispatcher:
         inv_raw = _make_w3c_invocation(bob.private_key, bob.verification_method, cap_id=child.id)
         inv = parser.parse_invocation(inv_raw)
 
-        verifier = ZcapVerifier()  # Default JCS verifier
-        with pytest.raises(ChainVerificationError) as exc_info:
-            verifier.verify_invocation(inv, child, chain=[root, child])
-        assert isinstance(exc_info.value.__cause__, SignatureVerificationError)
+        verifier = ZcapVerifier()  # No proof_verifier — default is W3C URDNA2015
+        verifier.verify_invocation(inv, child, chain=[root, child])
 
 
 # ── F6B: Embedded capabilities + capabilityChain ──

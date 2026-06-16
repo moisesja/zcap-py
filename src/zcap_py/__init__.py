@@ -32,13 +32,10 @@ from zcap_py.exceptions import (
     ZcapError,
     ZcapParseError,
 )
-from zcap_py.jcs.canonicalize import canonicalize
-from zcap_py.proof.ed25519_2020 import (
-    build_canonical_payload,
-    sign_document_proof,
-    verify_document_proof,
+from zcap_py.proof.ed25519_2020_w3c import (
+    sign_document_proof_w3c,
+    verify_document_proof_w3c,
 )
-from zcap_py.proof.ed25519_2020_w3c import verify_document_proof_w3c
 from zcap_py.proof.models import LinkedDataProof
 from zcap_py.zcap.caveats import CaveatRegistry, CaveatVerifier
 from zcap_py.zcap.models import Capability, Invocation
@@ -46,7 +43,7 @@ from zcap_py.zcap.parser import ZcapParser
 from zcap_py.zcap.target_attenuation import InvocationTargetAttenuator, PathPrefixAttenuator
 from zcap_py.zcap.verifier import DocumentLoader, ProofVerifier, ZcapVerifier
 
-__version__ = "0.6.0"
+__version__ = "0.7.0"
 
 __all__ = [
     "__version__",
@@ -69,13 +66,9 @@ __all__ = [
     "parse_did",
     "parse_did_url",
     "strip_did_fragment",
-    # JCS
-    "canonicalize",
-    # Proof
+    # Proof (W3C Ed25519Signature2020 / URDNA2015)
     "LinkedDataProof",
-    "build_canonical_payload",
-    "sign_document_proof",
-    "verify_document_proof",
+    "sign_document_proof_w3c",
     "verify_document_proof_w3c",
     # ZCAP Models, Parser & Verification
     "Capability",

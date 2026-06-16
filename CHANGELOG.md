@@ -7,6 +7,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Released]
 
+## [0.7.0] - 2026-06-16
+
+W3C / digitalbazaar compliance — phase 1 (P0/P1 high-priority). Tracked by the
+[compliance matrix](COMPLIANCE.md) and issues [#9–#29](https://github.com/moisesja/zcap-py/issues).
+
+### Changed (BREAKING)
+
+- **W3C URDNA2015 `Ed25519Signature2020` is now the only proof path** (issue [#13](https://github.com/moisesja/zcap-py/issues/13)). `ZcapVerifier`, `verify_delegation_chain()`, and `verify_invocation()` default to `verify_document_proof_w3c`; the JCS (RFC 8785) path is **removed entirely**. JCS-signed documents no longer verify. This is the change that makes proofs interoperate with `@digitalbazaar/zcap` / `@digitalbazaar/ed25519-signature-2020`.
+- **`pyld>=2.0` is now a core dependency** (was the optional `jsonld` extra); `rfc8785` is dropped. The `jsonld` extra is removed.
+- **`expires` is now REQUIRED on delegated capabilities** (issue [#10](https://github.com/moisesja/zcap-py/issues/10)). `ZcapParser.parse_capability()` raises `ZcapParseError` for a delegated capability with no `expires`. Root capabilities remain `expires`-free.
+
+### Added
+
+- **Public W3C signer** `sign_document_proof_w3c(document_without_proof, proof_metadata, private_key) -> dict` (issue [#14](https://github.com/moisesja/zcap-py/issues/14)) in `zcap_py.proof.ed25519_2020_w3c`, re-exported from `zcap_py`. Builds proof options from the document's `@context` (verbatim, for digitalbazaar byte-parity), URDNA2015-canonicalizes proof options and document, `verify_data = sha256(proofOptions) || sha256(document)`, Ed25519-signs. Round-trips with `verify_document_proof_w3c`. Both sign and verify now require the document to carry an `@context` (`ProofError` otherwise).
+- **Configurable `max_chain_length`** (default 10) on `ZcapVerifier` and `verify_delegation_chain()` (issue [#22](https://github.com/moisesja/zcap-py/issues/22)). A chain whose total length (root + delegations) exceeds the limit raises `ChainVerificationError` **before** any cryptographic work — long-chain / DoS mitigation matching `@digitalbazaar/zcap`.
+- `COMPLIANCE.md` — full ZCAP-LD compliance matrix (84 requirements) with `file:line` evidence and per-gap issue links, plus a `zcap-dotnet` mirror section.
+- `src/zcap_py/proof/_common.py` — suite-neutral proof helpers (`_extract_proof`, `_validate_proof_type`, `_decode_proof_value`, `_resolve_verification_key`) shared by the W3C path; relocated out of the deleted JCS module.
+
+### Removed
+
+- `src/zcap_py/proof/ed25519_2020.py` (JCS verify/sign/`build_canonical_payload`) and the `zcap_py.jcs` package.
+- Public exports `canonicalize`, `build_canonical_payload`, `sign_document_proof`, `verify_document_proof` (JCS).
+- JCS tests/examples (`test_jcs.py`, `test_proof.py`, `test_cross_language_interop.py`, `test_public_proof_api.py`; `examples/{verify_proof_jcs,jcs_canonicalization,generate_cross_lang_fixture}.py`) and the `tests/fixtures/cross_lang_jcs/` vectors. Superseded GitHub issues #5 and #8 closed.
+
+### Not yet addressed (tracked, next phases)
+
+- Chain trust-anchor / `is_root` binding (#9), invocation requires verified chain (#12), invocation Data Integrity model vs `type:"Invocation"` (#11), fail-open expiry/caveats in the low-level path (#20), and the remaining P1/P2 items (#15–#29). A digitalbazaar cross-implementation known-answer test for #14 is still pending (requires a Node-generated fixture).
+
 ## [0.6.0] - 2026-05-04
 
 ### Added
