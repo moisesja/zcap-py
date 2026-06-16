@@ -7,6 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Released]
 
+## [0.8.0] - 2026-06-16
+
+W3C / digitalbazaar compliance — phase 2 (P0 invocation security). Makes the
+invocation path **secure-by-default**. Tracked by [COMPLIANCE.md](COMPLIANCE.md)
+and issues [#9](https://github.com/moisesja/zcap-py/issues/9) /
+[#12](https://github.com/moisesja/zcap-py/issues/12) /
+[#20](https://github.com/moisesja/zcap-py/issues/20).
+
+### Security (BREAKING)
+
+- **Invoking a delegated capability now REQUIRES a verifiable, root-anchored chain** (issue [#12](https://github.com/moisesja/zcap-py/issues/12)). Previously `ZcapVerifier.verify_invocation(invocation, capability)` with no chain verified only the invocation signature, so a forged/unanchored delegated capability was accepted as long as the invocation was signed by its stated controller. Now a non-root capability without a chain (provided or resolvable from `proof.capabilityChain`) raises `InvocationError`. Only a **root** capability may be invoked directly.
+- **The delegation-chain anchor must be a genuine root** (issue [#9](https://github.com/moisesja/zcap-py/issues/9)). `verify_invocation` now asserts `chain[0].is_root`; a delegated/forged object placed at index 0 (whose proof is intentionally not verified) is rejected with `InvocationError` instead of being trusted as the anchor. New optional `expected_root_id` keyword pins the trust anchor.
+- **Absolute expiry is enforced in `verify_delegation_chain`** (issue [#20](https://github.com/moisesja/zcap-py/issues/20)). The standalone function now checks every capability (root + delegations) against a `clock` (default `now`), so it is fail-closed rather than relying on the `ZcapVerifier` facade. New optional `clock` keyword on `verify_delegation_chain`.
+
+### Changed
+
+- `ZcapVerifier.verify_invocation` gains an `expected_root_id: str | None = None` keyword.
+- `verify_delegation_chain` gains a `clock: Callable[[], datetime] | None = None` keyword and raises `CapabilityExpiredError` for an expired capability.
+- The low-level `zcap_py.zcap.invocation.verify_invocation` is now documented as an **internal building block** — it does not check the delegation chain, trust anchor, or absolute expiry; use `ZcapVerifier` for trust decisions.
+
+### Not yet addressed (tracked)
+
+- #11 (replace `type:"Invocation"` with the digitalbazaar `capabilityInvocation` Data-Integrity-proof-over-target model) — separate breaking-interop branch.
+- #14 digitalbazaar cross-implementation known-answer test; remaining P1/P2 items (#15–#29).
+
 ## [0.7.0] - 2026-06-16
 
 W3C / digitalbazaar compliance — phase 1 (P0/P1 high-priority). Tracked by the

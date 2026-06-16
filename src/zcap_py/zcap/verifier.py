@@ -89,6 +89,7 @@ class ZcapVerifier:
             target_attenuator=self._attenuator,
             proof_verifier=self._proof_verifier,
             max_chain_length=self._max_chain_length,
+            clock=self._clock,
         )
 
     def verify_invocation(
@@ -96,6 +97,8 @@ class ZcapVerifier:
         invocation: Invocation,
         capability: Capability | None = None,
         chain: list[Capability] | None = None,
+        *,
+        expected_root_id: str | None = None,
     ) -> None:
         """Verify an invocation against its target capability.
 
@@ -111,9 +114,24 @@ class ZcapVerifier:
         If *chain* is provided, ``chain[0]`` is treated as the root and
         ``chain[1:]`` as the delegation chain; the chain is verified first.
 
+        Security model:
+
+        * Invoking a **delegated** capability (one with a ``parentCapability``)
+          requires a verifiable, root-anchored chain — provided directly or
+          resolvable from ``proof.capabilityChain``.  Without one the call is
+          rejected (a forged/unanchored capability is never trusted just
+          because the invocation is signed by its stated controller).
+        * The chain anchor (``chain[0]``) must be a genuine root
+          (``is_root``); its proof is intentionally not verified, so a
+          non-root anchor would otherwise be trusted with its proof skipped.
+        * ``expected_root_id`` optionally pins the trust anchor: when set,
+          ``chain[0].id`` must equal it.
+        * Only a **root** capability may be invoked directly without a chain.
+
         Raises:
             ChainVerificationError: If delegation chain verification fails.
-            InvocationError: On structural mismatches or chain-leaf linkage failure.
+            InvocationError: On structural mismatches, a missing/forged chain
+                anchor, or chain-leaf linkage failure.
             CapabilityExpiredError: If any capability in the chain has expired.
             InvokerMismatchError: If the invoker DID doesn't match.
             SignatureVerificationError: If the cryptographic proof fails.
@@ -133,8 +151,40 @@ class ZcapVerifier:
         if chain is None and invocation.proof.capability_chain is not None:
             chain = self._resolve_capability_chain(invocation.proof.capability_chain)
 
+        has_chain = chain is not None and len(chain) > 0
+
+        # #12: a delegated capability MUST be backed by a verifiable, root-anchored
+        # chain. Otherwise its own delegation proof and ancestry are never checked.
+        if not capability.is_root and not has_chain:
+            raise InvocationError(
+                "Invoking a delegated capability requires a verifiable, root-anchored "
+                "capability chain (none provided or resolvable from proof.capabilityChain)",
+                context={
+                    "capability_id": capability.id,
+                    "parent_capability": capability.parent_capability,
+                },
+            )
+
         # --- Chain verification ---
-        if chain is not None and len(chain) > 0:
+        if has_chain:
+            assert chain is not None  # narrowed by has_chain
+            # #9: the chain anchor must be a genuine root. verify_delegation_chain
+            # trusts chain[0] and does NOT verify its proof, so a delegated/forged
+            # object here would be accepted as the trust anchor.
+            if not chain[0].is_root:
+                raise InvocationError(
+                    "Chain anchor (chain[0]) is not a root capability",
+                    context={
+                        "anchor_id": chain[0].id,
+                        "parent_capability": chain[0].parent_capability,
+                    },
+                )
+            if expected_root_id is not None and chain[0].id != expected_root_id:
+                raise InvocationError(
+                    "Chain root does not match the expected trust anchor",
+                    context={"root_id": chain[0].id, "expected_root_id": expected_root_id},
+                )
+
             self.verify_delegation_chain(chain[0], chain[1:])
 
             # FR-INVOKE-08: Chain-to-capability linkage

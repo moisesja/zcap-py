@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
 from zcap_py.did.url import strip_did_fragment
 from zcap_py.exceptions import (
     ActionAttenuationError,
+    CapabilityExpiredError,
     ChainVerificationError,
     DelegationError,
     ExpiryAttenuationError,
@@ -139,6 +141,7 @@ def verify_delegation_chain(
     target_attenuator: InvocationTargetAttenuator | None = None,
     proof_verifier: Callable[[dict[str, object]], None] | None = None,
     max_chain_length: int = DEFAULT_MAX_CHAIN_LENGTH,
+    clock: Callable[[], datetime] | None = None,
 ) -> None:
     """Verify a full delegation chain from *root* to the leaf.
 
@@ -152,10 +155,15 @@ def verify_delegation_chain(
             allowed. Mitigates long-chain / DoS attacks. Matches the
             ``@digitalbazaar/zcap`` default of 10. Enforced before any
             cryptographic work.
+        clock: Source of "now" for the absolute-expiry check. Defaults to
+            ``datetime.now(UTC)``. Every capability in the chain (root +
+            delegations) must be unexpired — this makes the standalone
+            function fail-closed rather than relying on the caller.
 
     Raises:
         ChainVerificationError: Wrapping the underlying cause if any link fails,
             or if the chain exceeds ``max_chain_length``.
+        CapabilityExpiredError: If any capability in the chain has expired.
     """
     if not chain:
         return
@@ -171,6 +179,21 @@ def verify_delegation_chain(
             f"Delegation chain length {total} exceeds maximum {max_chain_length}",
             context={"length": total, "max_chain_length": max_chain_length},
         )
+
+    # Absolute expiry — every capability (root + delegations) must be unexpired.
+    # Enforced here (not only in ZcapVerifier) so the standalone function cannot
+    # be used as a fail-open bypass.
+    now = (clock or (lambda: datetime.now(tz=UTC)))()
+    for cap in (root, *chain):
+        if cap.expires is not None and cap.expires <= now:
+            raise CapabilityExpiredError(
+                f"Capability '{cap.id}' expired at {cap.expires.isoformat()}",
+                context={
+                    "capability_id": cap.id,
+                    "expires": cap.expires.isoformat(),
+                    "now": now.isoformat(),
+                },
+            )
 
     pairs: list[tuple[Capability, Capability]] = []
     pairs.append((root, chain[0]))

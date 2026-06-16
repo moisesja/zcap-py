@@ -112,7 +112,9 @@ This library is in active development, tracking full [W3C ZCAP-LD](https://w3c-c
 
 Proof verification uses the W3C `Ed25519Signature2020` (URDNA2015) algorithm and is believed byte-compatible with the digitalbazaar ecosystem; a cross-implementation known-answer test against a digitalbazaar-generated proof is still pending ([#14](https://github.com/moisesja/zcap-py/issues/14)).
 
-> ⚠️ **Security — invocation path is not yet secure-by-default.** Until [#9](https://github.com/moisesja/zcap-py/issues/9) and [#12](https://github.com/moisesja/zcap-py/issues/12) land, `verify_invocation` does not require the invoked delegated capability to be anchored to a cryptographically verified chain, and the standalone `verify_delegation_chain` does no absolute-expiry check ([#20](https://github.com/moisesja/zcap-py/issues/20)). Do not rely on the invocation path for trust decisions yet — always pass and verify a full, root-anchored `chain`.
+The invocation path is **secure-by-default** as of 0.8.0: invoking a delegated capability requires a verifiable, root-anchored chain ([#12](https://github.com/moisesja/zcap-py/issues/12)), the chain anchor must be a genuine root ([#9](https://github.com/moisesja/zcap-py/issues/9)), and `verify_delegation_chain` enforces absolute expiry ([#20](https://github.com/moisesja/zcap-py/issues/20)). Use `ZcapVerifier` (the authoritative entry point) rather than the low-level `verify_invocation` building block for trust decisions.
+
+> ℹ️ **Remaining interop gap.** The invocation document is still modelled as a bespoke `type:"Invocation"` object rather than the digitalbazaar `capabilityInvocation` Data-Integrity-proof-over-target shape ([#11](https://github.com/moisesja/zcap-py/issues/11)), and the cross-implementation proof KAT ([#14](https://github.com/moisesja/zcap-py/issues/14)) is still pending.
 
 ## Reference Specification
 
