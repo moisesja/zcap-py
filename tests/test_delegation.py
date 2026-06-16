@@ -55,8 +55,8 @@ def _make_delegated(
     }
     if actions is not None:
         base["allowedAction"] = actions
-    if expires is not None:
-        base["expires"] = expires
+    # Delegated capabilities MUST have expires; default to far-future when unset.
+    base["expires"] = expires if expires is not None else "2099-01-01T00:00:00Z"
     return make_signed_document(base, parent_key, parent_vm)  # type: ignore[arg-type]
 
 
@@ -167,6 +167,7 @@ class TestAllowedActionAttenuation:
             "parentCapability": "urn:trust:anchor",
             "invocationTarget": "https://api.example.com/data/",
             "allowedAction": ["read"],
+            "expires": "2099-01-01T00:00:00Z",
         }
         root_signed = make_signed_document(root_raw, alice.private_key, alice.verification_method)
         parent_cap = parser.parse_capability(root_signed)
@@ -259,8 +260,12 @@ class TestExpiryAttenuation:
             verify_delegation_chain(parent_cap, [child])
         assert isinstance(exc_info.value.__cause__, ExpiryAttenuationError)
 
-    def test_child_absent_parent_set_is_valid(self) -> None:
-        """Child with no expiry inherits parent's expiry — valid."""
+    def test_child_expires_within_parent_is_valid(self) -> None:
+        """Child with an expiry at or before the parent's is valid.
+
+        ``expires`` is required on delegated capabilities, so the only valid
+        case is a child expiry that does not exceed the parent's.
+        """
         alice = generate_ed25519_keypair()
         bob = generate_ed25519_keypair()
 
@@ -288,6 +293,7 @@ class TestExpiryAttenuation:
             parent_vm=alice.verification_method,
             controller_did=bob.did,
             actions=["read"],
+            expires="2026-05-01T00:00:00Z",  # before parent's 2026-06-01
         )
         child = parser.parse_capability(child_raw)
 
@@ -481,6 +487,7 @@ class TestMissingProof:
             "controller": bob.did,
             "parentCapability": root.id,
             "invocationTarget": "https://api.example.com/data/",
+            "expires": "2099-01-01T00:00:00Z",
         }
         child = parser.parse_capability(child_raw)
         assert child.proof is None
@@ -488,3 +495,44 @@ class TestMissingProof:
         with pytest.raises(ChainVerificationError) as exc_info:
             verify_delegation_chain(root, [child])
         assert isinstance(exc_info.value.__cause__, DelegationError)
+
+
+class TestMaxChainLength:
+    """Max chain length (default 10) — long-chain attack mitigation."""
+
+    def _chain(self, alice: object, n: int) -> list:  # type: ignore[type-arg]
+        # n parseable delegated caps; signatures/linkage irrelevant because the
+        # length gate is enforced before any per-link work.
+        caps = []
+        for i in range(n):
+            raw = _make_delegated(
+                parent_id="urn:root:cap",
+                parent_key=alice.private_key,  # type: ignore[attr-defined]
+                parent_vm=alice.verification_method,  # type: ignore[attr-defined]
+                controller_did=alice.did,  # type: ignore[attr-defined]
+                actions=["read"],
+                cap_id=f"urn:delegated:cap{i}",
+            )
+            caps.append(parser.parse_capability(raw))
+        return caps
+
+    def test_chain_exceeding_default_max_raises_before_crypto(self) -> None:
+        alice = generate_ed25519_keypair()
+        root = parser.parse_capability(_make_root(alice.did))
+        chain = self._chain(alice, 10)  # 10 + root = 11 > 10
+
+        def boom(_doc: dict[str, object]) -> None:
+            raise AssertionError("crypto must not run before the length check")
+
+        with pytest.raises(ChainVerificationError, match="exceeds maximum"):
+            verify_delegation_chain(root, chain, proof_verifier=boom)
+
+    def test_custom_max_chain_length_enforced(self) -> None:
+        alice = generate_ed25519_keypair()
+        root = parser.parse_capability(_make_root(alice.did))
+        chain = self._chain(alice, 3)  # 3 + root = 4 > 2
+
+        with pytest.raises(ChainVerificationError, match="exceeds maximum"):
+            verify_delegation_chain(
+                root, chain, max_chain_length=2, proof_verifier=lambda _doc: None
+            )

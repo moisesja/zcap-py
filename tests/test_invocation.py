@@ -45,6 +45,7 @@ def _make_cap(
         "controller": controller_did,
         "parentCapability": "urn:root:cap",
         "invocationTarget": target,
+        "expires": "2099-01-01T00:00:00Z",
     }
     if actions is not None:
         raw["allowedAction"] = actions
@@ -198,6 +199,7 @@ class TestInvokerIdentity:
             "parentCapability": "urn:root:cap",
             "invocationTarget": "https://api.example.com/data/",
             "allowedAction": ["read"],
+            "expires": "2099-01-01T00:00:00Z",
         }
         cap = parser.parse_capability(raw)
 

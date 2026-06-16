@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, TypeAlias
 
 from zcap_py.exceptions import CapabilityExpiredError, InvocationError
 from zcap_py.zcap.caveats import CaveatRegistry, CaveatVerifier
+from zcap_py.zcap.delegation import DEFAULT_MAX_CHAIN_LENGTH
 from zcap_py.zcap.delegation import verify_delegation_chain as _verify_chain
 from zcap_py.zcap.invocation import verify_invocation as _verify_invocation
 from zcap_py.zcap.target_attenuation import (
@@ -59,6 +60,7 @@ class ZcapVerifier:
         clock: Callable[[], datetime] | None = None,
         proof_verifier: ProofVerifier | None = None,
         document_loader: DocumentLoader | None = None,
+        max_chain_length: int = DEFAULT_MAX_CHAIN_LENGTH,
     ) -> None:
         self._caveats = CaveatRegistry(caveat_verifiers)
         self._attenuator = target_attenuator or PathPrefixAttenuator()
@@ -66,6 +68,7 @@ class ZcapVerifier:
         self._clock = clock or (lambda: datetime.now(tz=UTC))
         self._proof_verifier = proof_verifier
         self._document_loader = document_loader
+        self._max_chain_length = max_chain_length
 
     def verify_delegation_chain(
         self,
@@ -85,6 +88,7 @@ class ZcapVerifier:
             allow_target_attenuation=self._allow_target_attenuation,
             target_attenuator=self._attenuator,
             proof_verifier=self._proof_verifier,
+            max_chain_length=self._max_chain_length,
         )
 
     def verify_invocation(

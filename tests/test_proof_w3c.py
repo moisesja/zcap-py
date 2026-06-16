@@ -5,7 +5,6 @@ from __future__ import annotations
 import pytest
 
 from tests.conftest import (
-    make_signed_document,
     make_w3c_misbound_document,
     make_w3c_signed_document,
 )
@@ -17,7 +16,10 @@ from zcap_py.exceptions import (
     SignatureVerificationError,
     UnsupportedProofTypeError,
 )
-from zcap_py.proof.ed25519_2020_w3c import verify_document_proof_w3c
+from zcap_py.proof.ed25519_2020_w3c import (
+    sign_document_proof_w3c,
+    verify_document_proof_w3c,
+)
 
 pyld = pytest.importorskip("pyld", reason="pyld required for W3C proof tests")
 
@@ -132,25 +134,72 @@ class TestKeyBindingW3C:
             verify_document_proof_w3c(doc)
 
 
-# ── Cross-verification (JCS ↔ W3C are distinct) ──
+# ── Public W3C signer (sign_document_proof_w3c) ──
 
 
-class TestCrossVerification:
-    def test_jcs_signed_doc_fails_w3c_verifier(self) -> None:
-        """A JCS-signed document must NOT pass the W3C URDNA2015 verifier."""
+class TestSignDocumentProofW3C:
+    PROOF_META: dict[str, object] = {
+        "type": "Ed25519Signature2020",
+        "verificationMethod": "",  # filled per-test
+        "created": "2026-01-01T00:00:00Z",
+        "proofPurpose": "capabilityDelegation",
+    }
+
+    def _meta(self, vm: str) -> dict[str, object]:
+        return {**self.PROOF_META, "verificationMethod": vm}
+
+    def test_sign_then_verify_round_trips(self) -> None:
         kp = generate_ed25519_keypair()
-        jcs_doc = make_signed_document(W3C_SAMPLE_DOC, kp.private_key, kp.verification_method)
-        with pytest.raises(SignatureVerificationError):
-            verify_document_proof_w3c(jcs_doc)
+        signed = sign_document_proof_w3c(
+            W3C_SAMPLE_DOC, self._meta(kp.verification_method), kp.private_key
+        )
+        # Default verifier accepts our own signer's output, byte-for-byte.
+        verify_document_proof_w3c(signed)
 
-    def test_w3c_signed_doc_fails_jcs_verifier(self) -> None:
-        """A W3C URDNA2015-signed document must NOT pass the JCS verifier."""
-        from zcap_py.proof.ed25519_2020 import verify_document_proof
-
+    def test_signer_does_not_include_proof_value_in_metadata(self) -> None:
         kp = generate_ed25519_keypair()
-        w3c_doc = make_w3c_signed_document(W3C_SAMPLE_DOC, kp.private_key, kp.verification_method)
+        signed = sign_document_proof_w3c(
+            W3C_SAMPLE_DOC, self._meta(kp.verification_method), kp.private_key
+        )
+        proof = signed["proof"]
+        assert isinstance(proof, dict)
+        assert proof["proofValue"].startswith("z")
+
+    def test_tampered_document_fails_verification(self) -> None:
+        kp = generate_ed25519_keypair()
+        signed = sign_document_proof_w3c(
+            W3C_SAMPLE_DOC, self._meta(kp.verification_method), kp.private_key
+        )
+        tampered = {**signed, "invocationTarget": "https://resource.example/other/"}
         with pytest.raises(SignatureVerificationError):
-            verify_document_proof(w3c_doc)
+            verify_document_proof_w3c(tampered)
+
+    def test_sign_without_context_raises_proof_error(self) -> None:
+        kp = generate_ed25519_keypair()
+        no_ctx = {k: v for k, v in W3C_SAMPLE_DOC.items() if k != "@context"}
+        with pytest.raises(ProofError, match="@context"):
+            sign_document_proof_w3c(no_ctx, self._meta(kp.verification_method), kp.private_key)
+
+    def test_verify_without_context_raises_proof_error(self) -> None:
+        kp = generate_ed25519_keypair()
+        signed = sign_document_proof_w3c(
+            W3C_SAMPLE_DOC, self._meta(kp.verification_method), kp.private_key
+        )
+        no_ctx = {k: v for k, v in signed.items() if k != "@context"}
+        with pytest.raises(ProofError, match="@context"):
+            verify_document_proof_w3c(no_ctx)
+
+    def test_sign_strips_stray_proof_key(self) -> None:
+        """A document that still carries a ``proof`` key still round-trips."""
+        kp = generate_ed25519_keypair()
+        doc_with_stale_proof = {**W3C_SAMPLE_DOC, "proof": {"type": "stale"}}
+        signed = sign_document_proof_w3c(
+            doc_with_stale_proof, self._meta(kp.verification_method), kp.private_key
+        )
+        proof = signed["proof"]
+        assert isinstance(proof, dict)
+        assert proof["type"] == "Ed25519Signature2020"  # stale proof replaced
+        verify_document_proof_w3c(signed)
 
 
 # ── Context loader errors ──

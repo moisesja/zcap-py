@@ -13,7 +13,7 @@ from zcap_py.exceptions import (
     InvocationTargetError,
     ZcapError,
 )
-from zcap_py.proof.ed25519_2020 import verify_document_proof
+from zcap_py.proof.ed25519_2020_w3c import verify_document_proof_w3c
 from zcap_py.zcap.target_attenuation import (
     InvocationTargetAttenuator,
     PathPrefixAttenuator,
@@ -124,8 +124,11 @@ def _verify_delegation_link(
                 },
             )
 
-    # FR-DELEG-06: Cryptographic proof verification
-    (proof_verifier or verify_document_proof)(child.raw)
+    # FR-DELEG-06: Cryptographic proof verification (W3C URDNA2015 by default)
+    (proof_verifier or verify_document_proof_w3c)(child.raw)
+
+
+DEFAULT_MAX_CHAIN_LENGTH = 10
 
 
 def verify_delegation_chain(
@@ -135,6 +138,7 @@ def verify_delegation_chain(
     allow_target_attenuation: bool = False,
     target_attenuator: InvocationTargetAttenuator | None = None,
     proof_verifier: Callable[[dict[str, object]], None] | None = None,
+    max_chain_length: int = DEFAULT_MAX_CHAIN_LENGTH,
 ) -> None:
     """Verify a full delegation chain from *root* to the leaf.
 
@@ -144,12 +148,29 @@ def verify_delegation_chain(
     Args:
         root: The trust anchor capability (implicitly trusted).
         chain: Ordered list of delegated capabilities, closest-to-root first.
+        max_chain_length: Maximum total capabilities (root + delegations)
+            allowed. Mitigates long-chain / DoS attacks. Matches the
+            ``@digitalbazaar/zcap`` default of 10. Enforced before any
+            cryptographic work.
 
     Raises:
-        ChainVerificationError: Wrapping the underlying cause if any link fails.
+        ChainVerificationError: Wrapping the underlying cause if any link fails,
+            or if the chain exceeds ``max_chain_length``.
     """
     if not chain:
         return
+
+    # Enforce chain-length bound BEFORE any per-link cryptographic verification.
+    # ``total`` counts the full chain: the root trust anchor + every delegation.
+    # @digitalbazaar/zcap's maxChainLength bounds the dereferenced capabilityChain
+    # (which includes the root by reference); if it instead counted delegations
+    # only, this gate would be one stricter — a safe direction, never looser.
+    total = len(chain) + 1  # +1 for the root trust anchor
+    if total > max_chain_length:
+        raise ChainVerificationError(
+            f"Delegation chain length {total} exceeds maximum {max_chain_length}",
+            context={"length": total, "max_chain_length": max_chain_length},
+        )
 
     pairs: list[tuple[Capability, Capability]] = []
     pairs.append((root, chain[0]))

@@ -1,18 +1,15 @@
-"""Verify an Ed25519Signature2020 proof using the W3C URDNA2015 algorithm.
+"""Sign and verify an Ed25519Signature2020 proof using the W3C URDNA2015 algorithm.
 
-This is the spec-compliant W3C verification path.
-Requires: pip install zcap-py[jsonld]
+This is the spec-compliant W3C path — interoperable with the digitalbazaar ZCAP
+ecosystem. ``pyld`` is a core dependency, so this works out of the box.
 """
-
-import hashlib
 
 from zcap_py import (
     SignatureVerificationError,
-    base58btc_encode,
     generate_ed25519_keypair,
+    sign_document_proof_w3c,
     verify_document_proof_w3c,
 )
-from zcap_py.jsonld.canonicalize import urdna2015_canonicalize
 
 keypair = generate_ed25519_keypair()
 
@@ -36,17 +33,8 @@ proof_metadata = {
 }
 
 # W3C signing: URDNA2015-canonicalize proof options and document separately,
-# SHA-256 hash each, concatenate, then Ed25519-sign the 64-byte result
-proof_options = {**proof_metadata, "@context": document_body["@context"]}
-canon_proof = urdna2015_canonicalize(proof_options)
-canon_doc = urdna2015_canonicalize(document_body)
-verify_data = (
-    hashlib.sha256(canon_proof.encode()).digest() + hashlib.sha256(canon_doc.encode()).digest()
-)
-signature = keypair.private_key.sign(verify_data)
-
-proof = {**proof_metadata, "proofValue": base58btc_encode(signature)}
-signed_document = {**document_body, "proof": proof}
+# SHA-256 hash each, concatenate (proofHash || docHash), Ed25519-sign.
+signed_document = sign_document_proof_w3c(document_body, proof_metadata, keypair.private_key)
 
 # Verify — uses URDNA2015 canonicalization internally
 verify_document_proof_w3c(signed_document)

@@ -41,6 +41,7 @@ def _delegated_cap_base() -> dict[str, object]:
         "parentCapability": "https://resource.example/capabilities/root",
         "invocationTarget": "https://resource.example/api/",
         "allowedAction": ["read", "write"],
+        "expires": "2026-12-31T00:00:00Z",
     }
 
 
@@ -246,6 +247,15 @@ class TestParseCapability:
         parser = ZcapParser()
         raw = _delegated_cap_base()
         raw["expires"] = "not-a-date"
+        with pytest.raises(ZcapParseError, match="expires") as exc_info:
+            parser.parse_capability(raw)
+        assert exc_info.value.field == "expires"
+
+    def test_delegated_capability_missing_expires_raises(self) -> None:
+        """expires is REQUIRED on delegated capabilities (spec MUST)."""
+        parser = ZcapParser()
+        raw = _delegated_cap_base()
+        del raw["expires"]
         with pytest.raises(ZcapParseError, match="expires") as exc_info:
             parser.parse_capability(raw)
         assert exc_info.value.field == "expires"

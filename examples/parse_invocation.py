@@ -2,9 +2,8 @@
 
 from zcap_py import (
     ZcapParser,
-    base58btc_encode,
-    canonicalize,
     generate_ed25519_keypair,
+    sign_document_proof_w3c,
 )
 
 keypair = generate_ed25519_keypair()
@@ -28,10 +27,7 @@ proof_metadata = {
     "capability": "urn:example:root-cap",
     "capabilityAction": "read",
 }
-to_sign = {**inv_body, "proof": proof_metadata}
-signature = keypair.private_key.sign(canonicalize(to_sign))
-proof = {**proof_metadata, "proofValue": base58btc_encode(signature)}
-signed_inv = {**inv_body, "proof": proof}
+signed_inv = sign_document_proof_w3c(inv_body, proof_metadata, keypair.private_key)
 
 parser = ZcapParser()
 inv = parser.parse_invocation(signed_inv)

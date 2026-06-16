@@ -88,7 +88,13 @@ class ZcapParser:
         # ── Delegated capability ──
         self._validate_optional_type(raw, "Authorization")
         allowed_action = self._parse_optional_action_list(raw)
+        # Spec: a delegated capability MUST carry an 'expires' (XSD date-time).
         expires = self._parse_expires(raw.get("expires"))
+        if expires is None:
+            raise ZcapParseError(
+                "Delegated capability must have an 'expires' field",
+                field="expires",
+            )
 
         parent_cap = raw.get("parentCapability")
         if not isinstance(parent_cap, str) or not parent_cap.strip():
