@@ -34,6 +34,22 @@ def _controller_contains(controller: str | list[str], did: str) -> bool:
     return did == controller
 
 
+def effective_allowed_actions(caps: list[Capability]) -> set[str] | None:
+    """Return the effective allowed-action set across an ordered capability list.
+
+    Intersects every capability's ``allowedAction``; a capability that omits
+    ``allowedAction`` inherits the restriction so far (it does not broaden).
+    Returns ``None`` only when no capability in the list restricts actions
+    (i.e. all actions are permitted — the root grants the full vocabulary).
+    """
+    effective: set[str] | None = None
+    for cap in caps:
+        if cap.allowed_action is not None:
+            declared = set(cap.allowed_action)
+            effective = declared if effective is None else (effective & declared)
+    return effective
+
+
 def _verify_delegation_link(
     parent: Capability,
     child: Capability,
@@ -200,6 +216,13 @@ def verify_delegation_chain(
     for i in range(len(chain) - 1):
         pairs.append((chain[i], chain[i + 1]))
 
+    # Track the EFFECTIVE allowed-action set inherited from the root downward.
+    # An absent ``allowedAction`` inherits the ancestor restriction — it does NOT
+    # re-broaden to "all actions". A child declaring actions outside the inherited
+    # effective set is broadening and is rejected.
+    effective: set[str] | None = (
+        set(root.allowed_action) if root.allowed_action is not None else None
+    )
     for i, (parent, child) in enumerate(pairs):
         try:
             _verify_delegation_link(
@@ -209,6 +232,19 @@ def verify_delegation_chain(
                 target_attenuator=target_attenuator,
                 proof_verifier=proof_verifier,
             )
+            if child.allowed_action is not None:
+                declared = set(child.allowed_action)
+                if effective is not None and not declared <= effective:
+                    extra = sorted(declared - effective)
+                    raise ActionAttenuationError(
+                        f"Child allowedAction broadens beyond inherited effective set: {extra}",
+                        context={
+                            "child_actions": child.allowed_action,
+                            "effective": sorted(effective),
+                        },
+                    )
+                effective = declared if effective is None else (effective & declared)
+            # child omits allowedAction → inherits ``effective`` unchanged.
         except ZcapError as exc:
             raise ChainVerificationError(
                 f"Delegation chain verification failed at link {i}",

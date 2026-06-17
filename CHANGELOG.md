@@ -21,6 +21,16 @@ and issues [#9](https://github.com/moisesja/zcap-py/issues/9) /
 - **The delegation-chain anchor must be a genuine root** (issue [#9](https://github.com/moisesja/zcap-py/issues/9)). `verify_invocation` now asserts `chain[0].is_root`; a delegated/forged object placed at index 0 (whose proof is intentionally not verified) is rejected with `InvocationError` instead of being trusted as the anchor. New optional `expected_root_id` keyword pins the trust anchor.
 - **Absolute expiry is enforced in `verify_delegation_chain`** (issue [#20](https://github.com/moisesja/zcap-py/issues/20)). The standalone function now checks every capability (root + delegations) against a `clock` (default `now`), so it is fail-closed rather than relying on the `ZcapVerifier` facade. New optional `clock` keyword on `verify_delegation_chain`.
 
+### Security (adversarial red-team hardening)
+
+Findings from a PoC-driven adversarial review (independently reproduced); see [COMPLIANCE.md](COMPLIANCE.md).
+
+- **Authorization hijack fixed** (issue [#32](https://github.com/moisesja/zcap-py/issues/32), CRITICAL). `verify_invocation` verified the chain but enforced authorization (target/invoker/action/caveat) against the caller-supplied/**embedded** capability, reconciled to the verified chain only by `id` string equality — letting an attacker pair a genuine victim-signed chain with a same-`id` self-signed capability of escalated authority. Authorization is now **bound to the cryptographically verified chain leaf** (`chain[-1]`), never the supplied/embedded object.
+- **Action-attenuation omission fixed** (issue [#33](https://github.com/moisesja/zcap-py/issues/33), CRITICAL). A delegated child that **omitted `allowedAction`** was treated as all-actions. `verify_delegation_chain` now tracks the **effective** allowed-action set (intersection along the chain; absent = inherit) and rejects broadening; `verify_invocation` enforces `capabilityAction` against it. New `effective_allowed_actions` helper.
+- **Target dot-segment escape fixed** (issue [#26](https://github.com/moisesja/zcap-py/issues/26)). `PathPrefixAttenuator` now percent-decodes and RFC-3986 dot-segment-normalizes paths before the prefix check, so `/data/../admin` / `%2F..%2F` cannot escape the granted subtree.
+- **Error-contract hardening** (issue [#34](https://github.com/moisesja/zcap-py/issues/34)). Malicious documents now raise only `ZcapError` subclasses (previously unhandled `TypeError`/`AttributeError`/`KeyError`/`UnicodeEncodeError` — unauthenticated DoS): timezone-naive `expires`/`created` are rejected (`ZcapParseError`); `document_loader` failures/None/non-dict become `InvocationError`; surrogate/UTF-8 encode errors become `CanonicalizationError`; a non-dict document to `verify_document_proof_w3c` raises `ProofError`.
+- **Proof metadata coverage** — `verify_document_proof_w3c` / `sign_document_proof_w3c` now require the document `@context` to include the `ed25519-2020` suite context, so `proof.created` / `proofPurpose` / `type` are covered by the signature (previously droppable via a bare zcap-only `@context`).
+
 ### Changed
 
 - `ZcapVerifier.verify_invocation` gains an `expected_root_id: str | None = None` keyword.
@@ -29,8 +39,10 @@ and issues [#9](https://github.com/moisesja/zcap-py/issues/9) /
 
 ### Not yet addressed (tracked)
 
+- **#35 (HIGH)** — caveat *parameter* contents and out-of-context application fields are not covered by the DI signature (URDNA2015 drops out-of-context terms); needs a signed-terms boundary (caveat-as-`@json` / context terms / documented contract).
+- **#9** — forged-root is still accepted by default unless `expected_root_id` is pinned (trusted-root dereference not yet mandatory).
 - #11 (replace `type:"Invocation"` with the digitalbazaar `capabilityInvocation` Data-Integrity-proof-over-target model) — separate breaking-interop branch.
-- #14 digitalbazaar cross-implementation known-answer test; remaining P1/P2 items (#15–#29).
+- #24 replay protection (no nonce/freshness); #21 `document_loader` SSRF input-validation; #14 digitalbazaar cross-implementation known-answer test; remaining P1/P2 items.
 
 ## [0.7.0] - 2026-06-16
 

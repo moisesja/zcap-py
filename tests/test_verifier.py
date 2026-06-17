@@ -793,8 +793,8 @@ class TestCapabilityChainInProof:
         verifier = ZcapVerifier(document_loader=loader)
         verifier.verify_invocation(inv, child)
 
-    def test_document_loader_error_propagates(self) -> None:
-        """Errors from document_loader propagate to the caller."""
+    def test_document_loader_error_wrapped_as_invocation_error(self) -> None:
+        """Errors from document_loader are confined to the ZcapError hierarchy."""
         alice = generate_ed25519_keypair()
         bob = generate_ed25519_keypair()
 
@@ -837,8 +837,10 @@ class TestCapabilityChainInProof:
             raise KeyError(f"Unknown capability: {cap_id}")
 
         verifier = ZcapVerifier(document_loader=failing_loader)
-        with pytest.raises(KeyError, match="Unknown capability"):
+        with pytest.raises(InvocationError, match="document_loader failed") as exc_info:
             verifier.verify_invocation(inv, child)
+        # Original loader error preserved as the cause.
+        assert isinstance(exc_info.value.__cause__, KeyError)
 
 
 class TestChainTrustAnchor:

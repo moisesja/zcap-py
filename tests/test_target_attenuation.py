@@ -127,3 +127,22 @@ class TestPathPrefixAttenuator:
 
     def test_satisfies_protocol(self) -> None:
         assert isinstance(PathPrefixAttenuator(), InvocationTargetAttenuator)
+
+    # ── RFC-3986 dot-segment / percent-encoding escapes (red-team) ──
+
+    def test_dot_segment_escape_rejected(self) -> None:
+        # /data/../admin resolves to /admin — outside the granted subtree.
+        assert not self.att.is_valid_attenuation(
+            "https://api.example.com/data/", "https://api.example.com/data/../admin"
+        )
+
+    def test_encoded_slash_dot_escape_rejected(self) -> None:
+        assert not self.att.is_valid_attenuation(
+            "https://api.example.com/data/", "https://api.example.com/data%2F..%2Fadmin"
+        )
+
+    def test_dot_segment_within_subtree_still_valid(self) -> None:
+        # /data/x/../y resolves to /data/y — still within the subtree.
+        assert self.att.is_valid_attenuation(
+            "https://api.example.com/data/", "https://api.example.com/data/x/../y"
+        )

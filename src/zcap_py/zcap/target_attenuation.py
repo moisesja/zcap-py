@@ -6,8 +6,19 @@ enabling cross-language fixture validation.
 
 from __future__ import annotations
 
+import posixpath
 from typing import Protocol, runtime_checkable
-from urllib.parse import urlparse
+from urllib.parse import unquote, urlparse
+
+
+def _normalized_path(path: str) -> str:
+    """Percent-decode and RFC-3986 dot-segment-normalize a URL path.
+
+    Resolves ``.`` / ``..`` and decodes ``%2F`` / ``%2E`` so a child cannot use
+    ``/data/../admin`` or ``/data%2F..%2Fadmin`` to escape the granted subtree.
+    """
+    decoded = unquote(path) or "/"
+    return posixpath.normpath(decoded)
 
 
 @runtime_checkable
@@ -54,8 +65,10 @@ class PathPrefixAttenuator:
         if p.netloc.lower() != c.netloc.lower():
             return False
 
-        parent_path = p.path.rstrip("/") + "/"
-        child_path = c.path.rstrip("/") + "/"
+        # Normalize (percent-decode + resolve dot-segments) BEFORE the
+        # segment-boundary prefix check so '..' / '%2F' tricks cannot escape.
+        parent_path = _normalized_path(p.path).rstrip("/") + "/"
+        child_path = _normalized_path(c.path).rstrip("/") + "/"
 
         if not child_path.startswith(parent_path):
             return False

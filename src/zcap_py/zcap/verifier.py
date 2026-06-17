@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING, TypeAlias
 
 from zcap_py.exceptions import CapabilityExpiredError, InvocationError
 from zcap_py.zcap.caveats import CaveatRegistry, CaveatVerifier
-from zcap_py.zcap.delegation import DEFAULT_MAX_CHAIN_LENGTH
+from zcap_py.zcap.delegation import DEFAULT_MAX_CHAIN_LENGTH, effective_allowed_actions
 from zcap_py.zcap.delegation import verify_delegation_chain as _verify_chain
 from zcap_py.zcap.invocation import verify_invocation as _verify_invocation
 from zcap_py.zcap.target_attenuation import (
@@ -196,6 +196,28 @@ class ZcapVerifier:
                     context={"chain_leaf_id": leaf_id, "capability_id": capability.id},
                 )
 
+            # CRITICAL: bind ALL authorization to the cryptographically VERIFIED
+            # chain leaf, never the caller-supplied/embedded capability object.
+            # The supplied/embedded capability is untrusted (its own proof is not
+            # verified) and was reconciled only by id above — using its content for
+            # target/action/invoker/caveat checks is an authorization-hijack vector.
+            capability = chain[-1]
+
+            # Enforce the EFFECTIVE allowed-action set inherited along the chain, so
+            # a leaf that omits allowedAction cannot re-broaden to all actions.
+            effective = effective_allowed_actions(chain)
+            if effective is not None:
+                action = invocation.proof.capability_action
+                if action is None or action not in effective:
+                    raise InvocationError(
+                        f"capabilityAction '{action}' is not permitted by the "
+                        f"effective allowedAction of the chain",
+                        context={
+                            "capability_action": action,
+                            "effective_allowed_action": sorted(effective),
+                        },
+                    )
+
         # --- Absolute expiry check (FR-INVOKE-09) ---
         now = self._clock()
         caps_to_check: list[Capability] = list(chain) if chain else []
@@ -242,6 +264,7 @@ class ZcapVerifier:
             InvocationError: If a string entry is encountered without a
                 configured document loader.
         """
+        from zcap_py.exceptions import ZcapError
         from zcap_py.zcap.parser import ZcapParser
 
         p = ZcapParser()
@@ -254,7 +277,23 @@ class ZcapVerifier:
                         "document loader required but not available",
                         context={"index": i, "reference": entry},
                     )
-                raw = self._document_loader(entry)
+                # The loader receives attacker-controlled strings and may raise or
+                # return anything. Confine all failures to the ZcapError hierarchy.
+                try:
+                    raw = self._document_loader(entry)
+                except ZcapError:
+                    raise
+                except Exception as exc:
+                    raise InvocationError(
+                        f"document_loader failed resolving capabilityChain[{i}] '{entry}'",
+                        context={"index": i, "reference": entry},
+                    ) from exc
+                if not isinstance(raw, dict):
+                    raise InvocationError(
+                        f"document_loader returned a non-object for capabilityChain[{i}] "
+                        f"'{entry}' (got {type(raw).__name__})",
+                        context={"index": i, "reference": entry, "type": type(raw).__name__},
+                    )
                 result.append(p.parse_capability(raw))
             else:
                 result.append(p.parse_capability(entry))

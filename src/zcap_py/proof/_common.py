@@ -27,6 +27,11 @@ ED25519_SIGNATURE_LENGTH = 64
 
 def _extract_proof(document: dict[str, object]) -> dict[str, object]:
     """Extract and validate the proof dict from a document."""
+    if not isinstance(document, dict):
+        raise ProofError(
+            "document must be a JSON object",
+            context={"type": type(document).__name__},
+        )
     proof = document.get("proof")
     if not isinstance(proof, dict):
         raise ProofError(
