@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
+
 import pytest
 
 from tests.conftest import make_signed_document
 from zcap_py.crypto.ed25519 import generate_ed25519_keypair
 from zcap_py.exceptions import (
     ActionAttenuationError,
+    CapabilityExpiredError,
     ChainVerificationError,
     DelegationError,
     ExpiryAttenuationError,
@@ -239,7 +242,7 @@ class TestExpiryAttenuation:
             "parentCapability": "urn:trust:anchor",
             "invocationTarget": "https://api.example.com/data/",
             "allowedAction": ["read"],
-            "expires": "2026-06-01T00:00:00Z",
+            "expires": "2099-06-01T00:00:00Z",
         }
         parent_signed = make_signed_document(
             parent_raw, alice.private_key, alice.verification_method
@@ -252,7 +255,7 @@ class TestExpiryAttenuation:
             parent_vm=alice.verification_method,
             controller_did=bob.did,
             actions=["read"],
-            expires="2026-12-31T00:00:00Z",
+            expires="2099-12-31T00:00:00Z",
         )
         child = parser.parse_capability(child_raw)
 
@@ -280,7 +283,7 @@ class TestExpiryAttenuation:
             "parentCapability": "urn:trust:anchor",
             "invocationTarget": "https://api.example.com/data/",
             "allowedAction": ["read"],
-            "expires": "2026-06-01T00:00:00Z",
+            "expires": "2099-06-01T00:00:00Z",
         }
         parent_signed = make_signed_document(
             parent_raw, alice.private_key, alice.verification_method
@@ -293,11 +296,51 @@ class TestExpiryAttenuation:
             parent_vm=alice.verification_method,
             controller_did=bob.did,
             actions=["read"],
-            expires="2026-05-01T00:00:00Z",  # before parent's 2026-06-01
+            expires="2099-05-01T00:00:00Z",  # before parent's 2099-06-01
         )
         child = parser.parse_capability(child_raw)
 
         verify_delegation_chain(parent_cap, [child])
+
+
+class TestAbsoluteExpiry:
+    """#20 — verify_delegation_chain is fail-closed on absolute expiry."""
+
+    def test_standalone_chain_rejects_expired_capability(self) -> None:
+        alice = generate_ed25519_keypair()
+        bob = generate_ed25519_keypair()
+        root = parser.parse_capability(_make_root(alice.did))
+        child = parser.parse_capability(
+            _make_delegated(
+                parent_id=root.id,
+                parent_key=alice.private_key,
+                parent_vm=alice.verification_method,
+                controller_did=bob.did,
+                actions=["read"],
+                expires="2020-01-01T00:00:00Z",  # long past
+            )
+        )
+        with pytest.raises(CapabilityExpiredError, match="expired"):
+            verify_delegation_chain(root, [child])
+
+    def test_injected_clock_before_expiry_passes(self) -> None:
+        alice = generate_ed25519_keypair()
+        bob = generate_ed25519_keypair()
+        root = parser.parse_capability(_make_root(alice.did))
+        child = parser.parse_capability(
+            _make_delegated(
+                parent_id=root.id,
+                parent_key=alice.private_key,
+                parent_vm=alice.verification_method,
+                controller_did=bob.did,
+                actions=["read"],
+                expires="2020-06-01T00:00:00Z",
+            )
+        )
+        # Clock before the child's expiry → not expired.
+        verify_delegation_chain(
+            root, [child], clock=lambda: datetime(2020, 1, 1, tzinfo=UTC)
+        )
 
 
 class TestInvocationTargetAttenuation:

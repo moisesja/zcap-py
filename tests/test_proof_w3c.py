@@ -208,8 +208,14 @@ class TestSignDocumentProofW3C:
 class TestContextErrors:
     def test_unknown_context_url_raises_canonicalization_error(self) -> None:
         kp = generate_ed25519_keypair()
+        # Includes the required suite context (so the suite-context guard passes)
+        # plus an unknown context the offline loader cannot resolve.
         doc_unknown_ctx: dict[str, object] = {
-            "@context": ["https://unknown.example/v1"],
+            "@context": [
+                "https://w3id.org/zcap/v1",
+                "https://w3id.org/security/suites/ed25519-2020/v1",
+                "https://unknown.example/v1",
+            ],
             "id": "urn:test",
             "type": "Authorization",
             "proof": {
@@ -222,3 +228,21 @@ class TestContextErrors:
         }
         with pytest.raises(CanonicalizationError, match="Unknown JSON-LD context"):
             verify_document_proof_w3c(doc_unknown_ctx)
+
+    def test_missing_suite_context_raises_proof_error(self) -> None:
+        """A proof doc whose @context omits the ed25519-2020 suite is rejected."""
+        kp = generate_ed25519_keypair()
+        doc_bare_ctx: dict[str, object] = {
+            "@context": "https://w3id.org/zcap/v1",
+            "id": "urn:test",
+            "type": "Authorization",
+            "proof": {
+                "type": "Ed25519Signature2020",
+                "verificationMethod": kp.verification_method,
+                "created": "2026-01-01T00:00:00Z",
+                "proofPurpose": "capabilityDelegation",
+                "proofValue": base58btc_encode(b"\x00" * 64),
+            },
+        }
+        with pytest.raises(ProofError, match="suite context"):
+            verify_document_proof_w3c(doc_bare_ctx)

@@ -31,6 +31,16 @@ def verify_invocation(
 ) -> None:
     """Verify an invocation against its target capability.
 
+    .. warning::
+        This is an **internal building block**. It performs only the
+        structural, invoker-identity, action, leaf-caveat, and cryptographic
+        proof checks for a single ``(invocation, capability)`` pair. It does
+        **not** verify the capability's delegation chain, anchor it to a
+        trusted root, or check absolute expiry. Use
+        :class:`~zcap_py.zcap.verifier.ZcapVerifier`, the authoritative
+        fail-closed entry point, for trust decisions — invoking it directly
+        on a delegated capability bypasses chain and expiry enforcement.
+
     Args:
         invocation: The parsed invocation document.
         capability: The capability being invoked.

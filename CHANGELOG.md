@@ -7,6 +7,51 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Released]
 
+## [0.8.0] - 2026-06-16
+
+W3C / digitalbazaar compliance — phase 2 (P0 invocation security). Makes the
+invocation path **secure-by-default**. Tracked by [COMPLIANCE.md](COMPLIANCE.md)
+and issues [#9](https://github.com/moisesja/zcap-py/issues/9) /
+[#12](https://github.com/moisesja/zcap-py/issues/12) /
+[#20](https://github.com/moisesja/zcap-py/issues/20).
+
+### Security (BREAKING)
+
+- **Invoking a delegated capability now REQUIRES a verifiable, root-anchored chain** (issue [#12](https://github.com/moisesja/zcap-py/issues/12)). Previously `ZcapVerifier.verify_invocation(invocation, capability)` with no chain verified only the invocation signature, so a forged/unanchored delegated capability was accepted as long as the invocation was signed by its stated controller. Now a non-root capability without a chain (provided or resolvable from `proof.capabilityChain`) raises `InvocationError`. Only a **root** capability may be invoked directly.
+- **The delegation-chain anchor must be structurally a root, and an embedded root in invoker-supplied `proof.capabilityChain` is rejected** (issue [#9](https://github.com/moisesja/zcap-py/issues/9)). `verify_invocation` asserts `chain[0].is_root`, and a chain auto-resolved from `proof.capabilityChain` must reference the root **by id** (resolved via the trusted `document_loader`) — an embedded root dict is rejected, closing the forged-root bypass on the auto-resolve path. New optional `expected_root_id` keyword pins `chain[0].id`. **Note:** `expected_root_id` only compares the (public) id and does not validate the root's controller/target; a root passed in an explicit `chain=` is trusted by design (the root is the trust anchor — supply it from a trusted store). Making a trusted-root dereference mandatory (target-derived id + controller binding) remains tracked in #9.
+- **Absolute expiry is enforced in `verify_delegation_chain`** (issue [#20](https://github.com/moisesja/zcap-py/issues/20)). The standalone function now checks every capability (root + delegations) against a `clock` (default `now`), so it is fail-closed rather than relying on the `ZcapVerifier` facade. New optional `clock` keyword on `verify_delegation_chain`.
+
+### Security (adversarial red-team hardening)
+
+Findings from a PoC-driven adversarial review (independently reproduced); see [COMPLIANCE.md](COMPLIANCE.md).
+
+- **Authorization hijack fixed** (issue [#32](https://github.com/moisesja/zcap-py/issues/32), CRITICAL). `verify_invocation` verified the chain but enforced authorization (target/invoker/action/caveat) against the caller-supplied/**embedded** capability, reconciled to the verified chain only by `id` string equality — letting an attacker pair a genuine victim-signed chain with a same-`id` self-signed capability of escalated authority. Authorization is now **bound to the cryptographically verified chain leaf** (`chain[-1]`), never the supplied/embedded object.
+- **Action-attenuation omission fixed** (issue [#33](https://github.com/moisesja/zcap-py/issues/33), CRITICAL). A delegated child that **omitted `allowedAction`** was treated as all-actions. `verify_delegation_chain` now tracks the **effective** allowed-action set (intersection along the chain; absent = inherit) and rejects broadening; `verify_invocation` enforces `capabilityAction` against it. New `effective_allowed_actions` helper.
+- **Target dot-segment escape fixed** (issue [#26](https://github.com/moisesja/zcap-py/issues/26)). `PathPrefixAttenuator` now percent-decodes and RFC-3986 dot-segment-normalizes paths before the prefix check, so `/data/../admin` / `%2F..%2F` cannot escape the granted subtree.
+- **Error-contract hardening** (issue [#34](https://github.com/moisesja/zcap-py/issues/34)). Malicious documents now raise only `ZcapError` subclasses (previously unhandled `TypeError`/`AttributeError`/`KeyError`/`UnicodeEncodeError` — unauthenticated DoS): timezone-naive `expires`/`created` are rejected (`ZcapParseError`); `document_loader` failures/None/non-dict become `InvocationError`; surrogate/UTF-8 encode errors become `CanonicalizationError`; a non-dict document to `verify_document_proof_w3c` raises `ProofError`.
+- **Proof metadata coverage** — `verify_document_proof_w3c` / `sign_document_proof_w3c` now require the document `@context` to include the `ed25519-2020` suite context, so `proof.created` / `proofPurpose` / `type` are covered by the signature (previously droppable via a bare zcap-only `@context`).
+
+### Breaking-change summary (for upgraders)
+
+- Delegated-capability invocation now **requires** a verifiable root-anchored chain (#12).
+- A chain auto-resolved from `proof.capabilityChain` must reference the **root by id**, not embed it (#9); pass an explicit `chain=` to use a caller-held root.
+- `expires` / `proof.created` must be **timezone-aware** (a naive value now raises `ZcapParseError`).
+- A signed document's `@context` must include the **`ed25519-2020` suite context**.
+
+### Changed
+
+- `ZcapVerifier.verify_invocation` gains an `expected_root_id: str | None = None` keyword.
+- `verify_delegation_chain` gains a `clock: Callable[[], datetime] | None = None` keyword and raises `CapabilityExpiredError` for an expired capability.
+- The low-level `zcap_py.zcap.invocation.verify_invocation` is now documented as an **internal building block** — it does not check the delegation chain, trust anchor, or absolute expiry; use `ZcapVerifier` for trust decisions.
+- `.claude/settings.json` / `.claude/settings.local.json` are now git-ignored (a machine-specific copy was committed by accident during the red-team session and has been removed).
+
+### Not yet addressed (tracked)
+
+- **#9** — the forged-root bypass on the **auto-resolved** chain path is closed (embedded root rejected; root resolved via trusted loader). The residual: a root passed in an explicit `chain=` is trusted by design, and `expected_root_id` validates only the id — a mandatory trusted-root dereference (target-derived `urn:zcap:root:<encoded-target>` + controller binding) is still to be implemented.
+- **#35 (HIGH)** — caveat *parameter* contents and out-of-context application fields are not covered by the DI signature (URDNA2015 drops out-of-context terms); needs a signed-terms boundary (caveat-as-`@json` / context terms / documented contract).
+- #11 (replace `type:"Invocation"` with the digitalbazaar `capabilityInvocation` Data-Integrity-proof-over-target model) — separate breaking-interop branch.
+- #24 replay protection (no nonce/freshness); #21 `document_loader` SSRF input-validation; #14 digitalbazaar cross-implementation known-answer test; remaining P1/P2 items.
+
 ## [0.7.0] - 2026-06-16
 
 W3C / digitalbazaar compliance — phase 1 (P0/P1 high-priority). Tracked by the

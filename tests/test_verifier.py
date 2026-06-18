@@ -372,8 +372,12 @@ class TestAncestorCaveatEnforcement:
         with pytest.raises(CaveatError, match="Ancestor caveat denied"):
             verifier.verify_invocation(inv, cap_b, chain=[root, cap_a, cap_b])
 
-    def test_no_chain_skips_ancestor_caveats(self) -> None:
-        """When no chain is provided, ancestor caveat check is skipped."""
+    def test_delegated_cap_without_chain_is_rejected(self) -> None:
+        """#12: invoking a delegated capability with no chain is rejected.
+
+        (Previously this silently skipped ancestor-caveat checks and verified
+        only the invocation signature — a forged/unanchored cap was accepted.)
+        """
         alice = generate_ed25519_keypair()
 
         cap_raw: dict[str, object] = {
@@ -395,8 +399,8 @@ class TestAncestorCaveatEnforcement:
         inv = parser.parse_invocation(inv_raw)
 
         verifier = ZcapVerifier()
-        # No chain — should just do core invocation verification
-        verifier.verify_invocation(inv, cap)
+        with pytest.raises(InvocationError, match="requires a verifiable"):
+            verifier.verify_invocation(inv, cap)
 
 
 # ── F6A: Proof dispatcher ──
@@ -692,8 +696,9 @@ class TestCapabilityChainInProof:
         with pytest.raises(InvocationError, match="document loader"):
             verifier.verify_invocation(inv, child)
 
-    def test_capability_chain_all_embedded_resolves(self) -> None:
-        """capabilityChain with all embedded dicts resolves into delegation chain."""
+    def test_capability_chain_referenced_root_resolves_via_trusted_loader(self) -> None:
+        """Spec shape: root referenced by id (resolved via trusted loader) +
+        embedded delegation entry resolves and verifies."""
         alice = generate_ed25519_keypair()
         bob = generate_ed25519_keypair()
 
@@ -708,7 +713,6 @@ class TestCapabilityChainInProof:
         )
         child = parser.parse_capability(child_raw)
 
-        # Build invocation with capabilityChain containing all embedded dicts
         inv_base: dict[str, object] = {
             "@context": [
                 "https://w3id.org/zcap/v1",
@@ -726,17 +730,55 @@ class TestCapabilityChainInProof:
             "proofPurpose": "capabilityInvocation",
             "capability": child.id,
             "capabilityAction": "read",
-            "capabilityChain": [root_raw, child_raw],
+            # Root by reference (spec-compliant); parent embedded.
+            "capabilityChain": ["urn:root:cap", child_raw],
         }
         pv = make_proof_value(inv_base, proof_metadata, bob.private_key)
         proof_dict: dict[str, object] = {**proof_metadata, "proofValue": pv}
-        inv_raw: dict[str, object] = {**inv_base, "proof": proof_dict}
+        inv = parser.parse_invocation({**inv_base, "proof": proof_dict})
 
-        inv = parser.parse_invocation(inv_raw)
+        # Trusted loader resolves the root id to the genuine root.
+        def root_loader(cid: str) -> dict[str, object]:
+            return root_raw if cid == "urn:root:cap" else {}
 
-        verifier = ZcapVerifier()
-        # chain=None → auto-resolve from capabilityChain (all embedded)
-        verifier.verify_invocation(inv, child)
+        ZcapVerifier(document_loader=root_loader).verify_invocation(inv, child)
+
+    def test_embedded_root_in_capability_chain_rejected(self) -> None:
+        """An embedded root dict in invoker-supplied capabilityChain is rejected."""
+        alice = generate_ed25519_keypair()
+        bob = generate_ed25519_keypair()
+        root_raw = _make_root(alice.did)
+        child_raw = _make_delegated(
+            parent_id="urn:root:cap",
+            parent_key=alice.private_key,
+            parent_vm=alice.verification_method,
+            controller_did=bob.did,
+            actions=["read"],
+        )
+        child = parser.parse_capability(child_raw)
+        inv_base: dict[str, object] = {
+            "@context": [
+                "https://w3id.org/zcap/v1",
+                "https://w3id.org/security/suites/ed25519-2020/v1",
+            ],
+            "id": "urn:uuid:invocation-1",
+            "type": "Invocation",
+            "capability": child.id,
+            "invocationTarget": "https://api.example.com/data/",
+        }
+        proof_metadata: dict[str, object] = {
+            "type": "Ed25519Signature2020",
+            "verificationMethod": bob.verification_method,
+            "created": "2026-01-01T00:00:00Z",
+            "proofPurpose": "capabilityInvocation",
+            "capability": child.id,
+            "capabilityAction": "read",
+            "capabilityChain": [root_raw, child_raw],  # embedded root → rejected
+        }
+        pv = make_proof_value(inv_base, proof_metadata, bob.private_key)
+        inv = parser.parse_invocation({**inv_base, "proof": {**proof_metadata, "proofValue": pv}})
+        with pytest.raises(InvocationError, match="must be referenced by id"):
+            ZcapVerifier().verify_invocation(inv, child)
 
     def test_capability_chain_string_resolved_via_document_loader(self) -> None:
         """String entries in capabilityChain are resolved via document_loader."""
@@ -789,8 +831,8 @@ class TestCapabilityChainInProof:
         verifier = ZcapVerifier(document_loader=loader)
         verifier.verify_invocation(inv, child)
 
-    def test_document_loader_error_propagates(self) -> None:
-        """Errors from document_loader propagate to the caller."""
+    def test_document_loader_error_wrapped_as_invocation_error(self) -> None:
+        """Errors from document_loader are confined to the ZcapError hierarchy."""
         alice = generate_ed25519_keypair()
         bob = generate_ed25519_keypair()
 
@@ -833,5 +875,111 @@ class TestCapabilityChainInProof:
             raise KeyError(f"Unknown capability: {cap_id}")
 
         verifier = ZcapVerifier(document_loader=failing_loader)
-        with pytest.raises(KeyError, match="Unknown capability"):
+        with pytest.raises(InvocationError, match="document_loader failed") as exc_info:
             verifier.verify_invocation(inv, child)
+        # Original loader error preserved as the cause.
+        assert isinstance(exc_info.value.__cause__, KeyError)
+
+
+class TestChainTrustAnchor:
+    """#9 / #12 — secure-by-default chain anchoring for invocation."""
+
+    def _root_child(self) -> tuple[object, object, object, object]:
+        alice = generate_ed25519_keypair()
+        bob = generate_ed25519_keypair()
+        root = parser.parse_capability(_make_root(alice.did))
+        child = parser.parse_capability(
+            _make_delegated(
+                parent_id=root.id,
+                parent_key=alice.private_key,
+                parent_vm=alice.verification_method,
+                controller_did=bob.did,
+                actions=["read"],
+            )
+        )
+        return alice, bob, root, child
+
+    def test_non_root_anchor_rejected(self) -> None:
+        """#9: chain[0] must be a genuine root (its proof is not verified)."""
+        _alice, bob, _root, child = self._root_child()
+        inv = parser.parse_invocation(
+            _make_invocation(bob.private_key, bob.verification_method, cap_id=child.id)
+        )
+        with pytest.raises(InvocationError, match="not a root capability"):
+            # chain anchored at a delegated cap, not the real root
+            ZcapVerifier().verify_invocation(inv, child, chain=[child])
+
+    def test_expected_root_id_mismatch_rejected(self) -> None:
+        """#9: expected_root_id pins the trust anchor."""
+        _alice, bob, root, child = self._root_child()
+        inv = parser.parse_invocation(
+            _make_invocation(bob.private_key, bob.verification_method, cap_id=child.id)
+        )
+        with pytest.raises(InvocationError, match="expected trust anchor"):
+            ZcapVerifier().verify_invocation(
+                inv, child, chain=[root, child], expected_root_id="urn:wrong:root"
+            )
+
+    def test_expected_root_id_match_passes(self) -> None:
+        _alice, bob, root, child = self._root_child()
+        inv = parser.parse_invocation(
+            _make_invocation(bob.private_key, bob.verification_method, cap_id=child.id)
+        )
+        ZcapVerifier().verify_invocation(
+            inv, child, chain=[root, child], expected_root_id=root.id
+        )
+
+    def test_delegated_with_full_chain_passes(self) -> None:
+        """#12 positive: a delegated cap with a full root-anchored chain verifies."""
+        _alice, bob, root, child = self._root_child()
+        inv = parser.parse_invocation(
+            _make_invocation(bob.private_key, bob.verification_method, cap_id=child.id)
+        )
+        ZcapVerifier().verify_invocation(inv, child, chain=[root, child])
+
+    def test_root_invoked_directly_passes(self) -> None:
+        """#12: a root capability may be invoked directly without a chain."""
+        alice = generate_ed25519_keypair()
+        root = parser.parse_capability(_make_root(alice.did))
+        inv = parser.parse_invocation(
+            _make_invocation(alice.private_key, alice.verification_method, cap_id=root.id)
+        )
+        ZcapVerifier().verify_invocation(inv, root)
+
+    def test_embedded_delegated_without_chain_rejected(self) -> None:
+        """#12: an embedded delegated cap with no capabilityChain is rejected."""
+        alice = generate_ed25519_keypair()
+        bob = generate_ed25519_keypair()
+        root = parser.parse_capability(_make_root(alice.did))
+        child_raw = _make_delegated(
+            parent_id=root.id,
+            parent_key=alice.private_key,
+            parent_vm=alice.verification_method,
+            controller_did=bob.did,
+            actions=["read"],
+        )
+        child = parser.parse_capability(child_raw)
+
+        inv_base: dict[str, object] = {
+            "@context": [
+                "https://w3id.org/zcap/v1",
+                "https://w3id.org/security/suites/ed25519-2020/v1",
+            ],
+            "id": "urn:uuid:inv-embedded",
+            "type": "Invocation",
+            "capability": child_raw,  # embedded dict, no capabilityChain in proof
+            "invocationTarget": "https://api.example.com/data/",
+        }
+        proof_metadata: dict[str, object] = {
+            "type": "Ed25519Signature2020",
+            "verificationMethod": bob.verification_method,
+            "created": "2026-01-01T00:00:00Z",
+            "proofPurpose": "capabilityInvocation",
+            "capability": child.id,
+            "capabilityAction": "read",
+        }
+        pv = make_w3c_proof_value(inv_base, proof_metadata, bob.private_key)
+        inv = parser.parse_invocation({**inv_base, "proof": {**proof_metadata, "proofValue": pv}})
+
+        with pytest.raises(InvocationError, match="requires a verifiable"):
+            ZcapVerifier().verify_invocation(inv)  # capability=None → embedded delegated

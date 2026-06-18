@@ -23,7 +23,7 @@ from typing import TYPE_CHECKING
 from cryptography.exceptions import InvalidSignature
 
 from zcap_py.crypto.multibase import base58btc_encode
-from zcap_py.exceptions import ProofError, SignatureVerificationError
+from zcap_py.exceptions import CanonicalizationError, ProofError, SignatureVerificationError
 from zcap_py.jsonld.canonicalize import urdna2015_canonicalize
 from zcap_py.proof._common import (
     _decode_proof_value,
@@ -36,6 +36,23 @@ if TYPE_CHECKING:
     from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
 _PROOF_SIGNATURE_FIELDS = frozenset({"proofValue", "jws", "signatureValue"})
+ED25519_2020_CONTEXT = "https://w3id.org/security/suites/ed25519-2020/v1"
+
+
+def _sha256_nquads(canonical: str) -> bytes:
+    """SHA-256 of canonical N-Quads, confining encoding errors to ZcapError.
+
+    pyld's URDNA2015 output can contain lone surrogate code points for malformed
+    string inputs; ``.encode('utf-8')`` would otherwise raise an unhandled
+    ``UnicodeEncodeError`` (DoS / error-contract violation).
+    """
+    try:
+        return hashlib.sha256(canonical.encode("utf-8")).digest()
+    except UnicodeError as e:
+        raise CanonicalizationError(
+            "Canonical form is not valid UTF-8 (malformed code point in input)",
+            context={"error": str(e)},
+        ) from e
 
 
 def _compute_verify_data(
@@ -46,11 +63,15 @@ def _compute_verify_data(
 
     ``proof_options`` must already carry the document's ``@context``.
     """
-    canon_proof = urdna2015_canonicalize(proof_options)
-    canon_doc = urdna2015_canonicalize(document_without_proof)
-    proof_hash = hashlib.sha256(canon_proof.encode("utf-8")).digest()
-    doc_hash = hashlib.sha256(canon_doc.encode("utf-8")).digest()
+    proof_hash = _sha256_nquads(urdna2015_canonicalize(proof_options))
+    doc_hash = _sha256_nquads(urdna2015_canonicalize(document_without_proof))
     return proof_hash + doc_hash
+
+
+def _context_terms(ctx: object) -> list[object]:
+    if isinstance(ctx, list):
+        return list(ctx)
+    return [ctx]
 
 
 def _build_proof_options(
@@ -61,13 +82,21 @@ def _build_proof_options(
     the document's ``@context`` injected verbatim.
 
     Raises:
-        ProofError: If the document has no ``@context`` (URDNA2015 of the proof
-            options would otherwise drop suite-defined terms).
+        ProofError: If the document has no ``@context``, or the ``@context`` does
+            not declare the Ed25519Signature2020 suite context. Without the suite
+            context, URDNA2015 drops the proof's ``created`` / ``proofPurpose`` /
+            ``type`` terms, leaving them outside the signed bytes.
     """
     if "@context" not in document:
         raise ProofError(
             "Document must have an '@context' for W3C Ed25519Signature2020 proofs",
             context={"keys": sorted(document.keys())},
+        )
+    if ED25519_2020_CONTEXT not in _context_terms(document["@context"]):
+        raise ProofError(
+            "Document '@context' must include the Ed25519Signature2020 suite context "
+            f"'{ED25519_2020_CONTEXT}' so proof metadata is covered by the signature",
+            context={"context": document["@context"]},
         )
     proof_options: dict[str, object] = {
         k: v for k, v in proof.items() if k not in _PROOF_SIGNATURE_FIELDS

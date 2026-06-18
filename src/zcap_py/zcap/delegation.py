@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
 from zcap_py.did.url import strip_did_fragment
 from zcap_py.exceptions import (
     ActionAttenuationError,
+    CapabilityExpiredError,
     ChainVerificationError,
     DelegationError,
     ExpiryAttenuationError,
@@ -30,6 +32,22 @@ def _controller_contains(controller: str | list[str], did: str) -> bool:
     if isinstance(controller, list):
         return did in controller
     return did == controller
+
+
+def effective_allowed_actions(caps: list[Capability]) -> set[str] | None:
+    """Return the effective allowed-action set across an ordered capability list.
+
+    Intersects every capability's ``allowedAction``; a capability that omits
+    ``allowedAction`` inherits the restriction so far (it does not broaden).
+    Returns ``None`` only when no capability in the list restricts actions
+    (i.e. all actions are permitted — the root grants the full vocabulary).
+    """
+    effective: set[str] | None = None
+    for cap in caps:
+        if cap.allowed_action is not None:
+            declared = set(cap.allowed_action)
+            effective = declared if effective is None else (effective & declared)
+    return effective
 
 
 def _verify_delegation_link(
@@ -139,6 +157,7 @@ def verify_delegation_chain(
     target_attenuator: InvocationTargetAttenuator | None = None,
     proof_verifier: Callable[[dict[str, object]], None] | None = None,
     max_chain_length: int = DEFAULT_MAX_CHAIN_LENGTH,
+    clock: Callable[[], datetime] | None = None,
 ) -> None:
     """Verify a full delegation chain from *root* to the leaf.
 
@@ -152,10 +171,15 @@ def verify_delegation_chain(
             allowed. Mitigates long-chain / DoS attacks. Matches the
             ``@digitalbazaar/zcap`` default of 10. Enforced before any
             cryptographic work.
+        clock: Source of "now" for the absolute-expiry check. Defaults to
+            ``datetime.now(UTC)``. Every capability in the chain (root +
+            delegations) must be unexpired — this makes the standalone
+            function fail-closed rather than relying on the caller.
 
     Raises:
         ChainVerificationError: Wrapping the underlying cause if any link fails,
             or if the chain exceeds ``max_chain_length``.
+        CapabilityExpiredError: If any capability in the chain has expired.
     """
     if not chain:
         return
@@ -172,11 +196,33 @@ def verify_delegation_chain(
             context={"length": total, "max_chain_length": max_chain_length},
         )
 
+    # Absolute expiry — every capability (root + delegations) must be unexpired.
+    # Enforced here (not only in ZcapVerifier) so the standalone function cannot
+    # be used as a fail-open bypass.
+    now = (clock or (lambda: datetime.now(tz=UTC)))()
+    for cap in (root, *chain):
+        if cap.expires is not None and cap.expires <= now:
+            raise CapabilityExpiredError(
+                f"Capability '{cap.id}' expired at {cap.expires.isoformat()}",
+                context={
+                    "capability_id": cap.id,
+                    "expires": cap.expires.isoformat(),
+                    "now": now.isoformat(),
+                },
+            )
+
     pairs: list[tuple[Capability, Capability]] = []
     pairs.append((root, chain[0]))
     for i in range(len(chain) - 1):
         pairs.append((chain[i], chain[i + 1]))
 
+    # Track the EFFECTIVE allowed-action set inherited from the root downward.
+    # An absent ``allowedAction`` inherits the ancestor restriction — it does NOT
+    # re-broaden to "all actions". A child declaring actions outside the inherited
+    # effective set is broadening and is rejected.
+    effective: set[str] | None = (
+        set(root.allowed_action) if root.allowed_action is not None else None
+    )
     for i, (parent, child) in enumerate(pairs):
         try:
             _verify_delegation_link(
@@ -186,6 +232,19 @@ def verify_delegation_chain(
                 target_attenuator=target_attenuator,
                 proof_verifier=proof_verifier,
             )
+            if child.allowed_action is not None:
+                declared = set(child.allowed_action)
+                if effective is not None and not declared <= effective:
+                    extra = sorted(declared - effective)
+                    raise ActionAttenuationError(
+                        f"Child allowedAction broadens beyond inherited effective set: {extra}",
+                        context={
+                            "child_actions": child.allowed_action,
+                            "effective": sorted(effective),
+                        },
+                    )
+                effective = declared if effective is None else (effective & declared)
+            # child omits allowedAction → inherits ``effective`` unchanged.
         except ZcapError as exc:
             raise ChainVerificationError(
                 f"Delegation chain verification failed at link {i}",

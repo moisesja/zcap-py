@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING, TypeAlias
 
 from zcap_py.exceptions import CapabilityExpiredError, InvocationError
 from zcap_py.zcap.caveats import CaveatRegistry, CaveatVerifier
-from zcap_py.zcap.delegation import DEFAULT_MAX_CHAIN_LENGTH
+from zcap_py.zcap.delegation import DEFAULT_MAX_CHAIN_LENGTH, effective_allowed_actions
 from zcap_py.zcap.delegation import verify_delegation_chain as _verify_chain
 from zcap_py.zcap.invocation import verify_invocation as _verify_invocation
 from zcap_py.zcap.target_attenuation import (
@@ -89,6 +89,7 @@ class ZcapVerifier:
             target_attenuator=self._attenuator,
             proof_verifier=self._proof_verifier,
             max_chain_length=self._max_chain_length,
+            clock=self._clock,
         )
 
     def verify_invocation(
@@ -96,6 +97,8 @@ class ZcapVerifier:
         invocation: Invocation,
         capability: Capability | None = None,
         chain: list[Capability] | None = None,
+        *,
+        expected_root_id: str | None = None,
     ) -> None:
         """Verify an invocation against its target capability.
 
@@ -111,9 +114,24 @@ class ZcapVerifier:
         If *chain* is provided, ``chain[0]`` is treated as the root and
         ``chain[1:]`` as the delegation chain; the chain is verified first.
 
+        Security model:
+
+        * Invoking a **delegated** capability (one with a ``parentCapability``)
+          requires a verifiable, root-anchored chain — provided directly or
+          resolvable from ``proof.capabilityChain``.  Without one the call is
+          rejected (a forged/unanchored capability is never trusted just
+          because the invocation is signed by its stated controller).
+        * The chain anchor (``chain[0]``) must be a genuine root
+          (``is_root``); its proof is intentionally not verified, so a
+          non-root anchor would otherwise be trusted with its proof skipped.
+        * ``expected_root_id`` optionally pins the trust anchor: when set,
+          ``chain[0].id`` must equal it.
+        * Only a **root** capability may be invoked directly without a chain.
+
         Raises:
             ChainVerificationError: If delegation chain verification fails.
-            InvocationError: On structural mismatches or chain-leaf linkage failure.
+            InvocationError: On structural mismatches, a missing/forged chain
+                anchor, or chain-leaf linkage failure.
             CapabilityExpiredError: If any capability in the chain has expired.
             InvokerMismatchError: If the invoker DID doesn't match.
             SignatureVerificationError: If the cryptographic proof fails.
@@ -133,8 +151,40 @@ class ZcapVerifier:
         if chain is None and invocation.proof.capability_chain is not None:
             chain = self._resolve_capability_chain(invocation.proof.capability_chain)
 
+        has_chain = chain is not None and len(chain) > 0
+
+        # #12: a delegated capability MUST be backed by a verifiable, root-anchored
+        # chain. Otherwise its own delegation proof and ancestry are never checked.
+        if not capability.is_root and not has_chain:
+            raise InvocationError(
+                "Invoking a delegated capability requires a verifiable, root-anchored "
+                "capability chain (none provided or resolvable from proof.capabilityChain)",
+                context={
+                    "capability_id": capability.id,
+                    "parent_capability": capability.parent_capability,
+                },
+            )
+
         # --- Chain verification ---
-        if chain is not None and len(chain) > 0:
+        if has_chain:
+            assert chain is not None  # narrowed by has_chain
+            # #9: the chain anchor must be a genuine root. verify_delegation_chain
+            # trusts chain[0] and does NOT verify its proof, so a delegated/forged
+            # object here would be accepted as the trust anchor.
+            if not chain[0].is_root:
+                raise InvocationError(
+                    "Chain anchor (chain[0]) is not a root capability",
+                    context={
+                        "anchor_id": chain[0].id,
+                        "parent_capability": chain[0].parent_capability,
+                    },
+                )
+            if expected_root_id is not None and chain[0].id != expected_root_id:
+                raise InvocationError(
+                    "Chain root does not match the expected trust anchor",
+                    context={"root_id": chain[0].id, "expected_root_id": expected_root_id},
+                )
+
             self.verify_delegation_chain(chain[0], chain[1:])
 
             # FR-INVOKE-08: Chain-to-capability linkage
@@ -145,6 +195,28 @@ class ZcapVerifier:
                     f"invoked capability '{capability.id}'",
                     context={"chain_leaf_id": leaf_id, "capability_id": capability.id},
                 )
+
+            # CRITICAL: bind ALL authorization to the cryptographically VERIFIED
+            # chain leaf, never the caller-supplied/embedded capability object.
+            # The supplied/embedded capability is untrusted (its own proof is not
+            # verified) and was reconciled only by id above — using its content for
+            # target/action/invoker/caveat checks is an authorization-hijack vector.
+            capability = chain[-1]
+
+            # Enforce the EFFECTIVE allowed-action set inherited along the chain, so
+            # a leaf that omits allowedAction cannot re-broaden to all actions.
+            effective = effective_allowed_actions(chain)
+            if effective is not None:
+                action = invocation.proof.capability_action
+                if action is None or action not in effective:
+                    raise InvocationError(
+                        f"capabilityAction '{action}' is not permitted by the "
+                        f"effective allowedAction of the chain",
+                        context={
+                            "capability_action": action,
+                            "effective_allowed_action": sorted(effective),
+                        },
+                    )
 
         # --- Absolute expiry check (FR-INVOKE-09) ---
         now = self._clock()
@@ -182,21 +254,41 @@ class ZcapVerifier:
         self,
         chain_entries: tuple[str | dict[str, object], ...],
     ) -> list[Capability]:
-        """Resolve capabilityChain entries into Capability objects.
+        """Resolve an invoker-supplied ``proof.capabilityChain`` into Capabilities.
 
-        Embedded (dict) entries are parsed directly.  String entries are
-        resolved via the configured ``document_loader``.  If no loader is
-        configured, string entries raise :class:`InvocationError`.
+        SECURITY: the chain comes from the (untrusted) invocation proof. The
+        **root** (entry 0) is the trust anchor and its own proof is never
+        verified, so it MUST NOT be taken from invoker-supplied content. Per the
+        ZCAP-LD spec the root is referenced *by id*; this verifier resolves that
+        id through the trusted ``document_loader``. An **embedded root dict** is
+        rejected — otherwise an attacker fabricates a root with their own
+        controller and anchors a self-signed chain to it (forged-root bypass).
+
+        Callers who hold a trusted root should instead pass an explicit
+        ``chain=[trusted_root, ...]`` to :meth:`verify_invocation`.
+
+        Embedded (dict) entries after the root are parsed directly; string
+        entries are resolved via the configured ``document_loader``.
 
         Raises:
-            InvocationError: If a string entry is encountered without a
-                configured document loader.
+            InvocationError: If the root entry is embedded, or a string entry is
+                encountered without a configured document loader, or the loader
+                fails / returns a non-object.
         """
+        from zcap_py.exceptions import ZcapError
         from zcap_py.zcap.parser import ZcapParser
 
         p = ZcapParser()
         result: list[Capability] = []
         for i, entry in enumerate(chain_entries):
+            if i == 0 and not isinstance(entry, str):
+                raise InvocationError(
+                    "capabilityChain[0] (the root) must be referenced by id, not "
+                    "embedded: the verifier resolves the trust anchor from a trusted "
+                    "document_loader, never from invoker-supplied content. Pass an "
+                    "explicit chain=[trusted_root, ...] if you hold the root.",
+                    context={"index": 0, "entry_type": type(entry).__name__},
+                )
             if isinstance(entry, str):
                 if self._document_loader is None:
                     raise InvocationError(
@@ -204,7 +296,23 @@ class ZcapVerifier:
                         "document loader required but not available",
                         context={"index": i, "reference": entry},
                     )
-                raw = self._document_loader(entry)
+                # The loader receives attacker-controlled strings and may raise or
+                # return anything. Confine all failures to the ZcapError hierarchy.
+                try:
+                    raw = self._document_loader(entry)
+                except ZcapError:
+                    raise
+                except Exception as exc:
+                    raise InvocationError(
+                        f"document_loader failed resolving capabilityChain[{i}] '{entry}'",
+                        context={"index": i, "reference": entry},
+                    ) from exc
+                if not isinstance(raw, dict):
+                    raise InvocationError(
+                        f"document_loader returned a non-object for capabilityChain[{i}] "
+                        f"'{entry}' (got {type(raw).__name__})",
+                        context={"index": i, "reference": entry, "type": type(raw).__name__},
+                    )
                 result.append(p.parse_capability(raw))
             else:
                 result.append(p.parse_capability(entry))

@@ -330,12 +330,21 @@ class ZcapParser:
         if not isinstance(value, str):
             raise ZcapParseError("'expires' must be a string", field="expires")
         try:
-            return datetime.fromisoformat(value.replace("Z", "+00:00"))
+            parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
         except ValueError as e:
             raise ZcapParseError(
                 "'expires' is not a valid ISO 8601 datetime",
                 field="expires",
             ) from e
+        # FR-PARSE-05: timestamps are UTC/timezone-aware. A naive datetime cannot
+        # be compared against the timezone-aware clock — reject it at parse time
+        # rather than crashing later with a TypeError (error-contract + DoS).
+        if parsed.tzinfo is None:
+            raise ZcapParseError(
+                "'expires' must be timezone-aware (include a UTC offset, e.g. 'Z')",
+                field="expires",
+            )
+        return parsed
 
     @staticmethod
     def _parse_proof(proof: object, expected_purpose: str) -> LinkedDataProof:
@@ -373,12 +382,17 @@ class ZcapParser:
                 field="proof.created",
             )
         try:
-            datetime.fromisoformat(created.replace("Z", "+00:00"))
+            created_dt = datetime.fromisoformat(created.replace("Z", "+00:00"))
         except ValueError as e:
             raise ZcapParseError(
                 "proof.created is not a valid ISO 8601 datetime",
                 field="proof.created",
             ) from e
+        if created_dt.tzinfo is None:
+            raise ZcapParseError(
+                "proof.created must be timezone-aware (include a UTC offset, e.g. 'Z')",
+                field="proof.created",
+            )
 
         # FR-PROOF-06
         pv = proof.get("proofValue")
