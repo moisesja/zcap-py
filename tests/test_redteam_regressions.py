@@ -45,7 +45,6 @@ def _delegated(
     signer: DidKeyPair,
     *,
     allowed_action: list[str] | None,
-    invoker: str | None = None,
 ) -> dict[str, object]:
     base: dict[str, object] = {
         "@context": [ZCAP, SUITE],
@@ -58,8 +57,6 @@ def _delegated(
     }
     if allowed_action is not None:
         base["allowedAction"] = allowed_action
-    if invoker is not None:
-        base["invoker"] = invoker
     meta: dict[str, object] = {
         "type": "Ed25519Signature2020",
         "verificationMethod": signer.verification_method,
@@ -70,27 +67,30 @@ def _delegated(
 
 
 def _invocation(
-    capability_field: object,
+    capability: object,
     target: str,
     invoker: DidKeyPair,
     *,
-    cap_id: str,
     action: str,
     chain: list[object],
 ) -> dict[str, object]:
+    """A capabilityInvocation proof over a target doc.
+
+    ``capability`` (string id or embedded full object), ``invocationTarget``,
+    ``capabilityAction`` and ``capabilityChain`` are carried in the (signed)
+    proof — there is no body type/capability/invocationTarget.
+    """
     base: dict[str, object] = {
         "@context": [ZCAP, SUITE],
         "id": "urn:uuid:inv",
-        "type": "Invocation",
-        "capability": capability_field,
-        "invocationTarget": target,
     }
     meta: dict[str, object] = {
         "type": "Ed25519Signature2020",
         "verificationMethod": invoker.verification_method,
         "created": "2026-01-01T00:00:00Z",
         "proofPurpose": "capabilityInvocation",
-        "capability": cap_id,
+        "capability": capability,
+        "invocationTarget": target,
         "capabilityAction": action,
         "capabilityChain": chain,
     }
@@ -111,16 +111,16 @@ class TestAuthorizationHijack:
         root = _root("urn:zcap:root:alice", root_ctrl.did, victim)
         legit_leaf = _delegated(
             "urn:zcap:cap-1", alice.did, root["id"], victim, root_ctrl,
-            allowed_action=["read"], invoker=alice.did,
+            allowed_action=["read"],
         )
         # Same id, escalated authority, self-signed by the attacker.
         forged = _delegated(
             "urn:zcap:cap-1", attacker.did, root["id"], secret, attacker,
-            allowed_action=["read", "write", "transfer"], invoker=attacker.did,
+            allowed_action=["read", "write", "transfer"],
         )
         inv = _invocation(
             forged, secret, attacker,
-            cap_id="urn:zcap:cap-1", action="transfer", chain=[root, legit_leaf],
+            action="transfer", chain=[root, legit_leaf],
         )
         # Caller supplies the genuine, trusted chain (the safe pattern). The
         # forged capability is embedded in the invocation body. Authorization must
@@ -141,11 +141,11 @@ class TestAuthorizationHijack:
         root = _root("urn:zcap:root:alice", root_ctrl.did, victim)
         legit_leaf = _delegated(
             "urn:zcap:cap-1", alice.did, root["id"], victim, root_ctrl,
-            allowed_action=["read"], invoker=alice.did,
+            allowed_action=["read"],
         )
         inv = _invocation(
             legit_leaf, victim, alice,
-            cap_id="urn:zcap:cap-1", action="read", chain=[root, legit_leaf],
+            action="read", chain=[root, legit_leaf],
         )
         trusted_chain = [parser.parse_capability(root), parser.parse_capability(legit_leaf)]
         ZcapVerifier().verify_invocation(
@@ -171,7 +171,7 @@ class TestActionAttenuationOmission:
         child = _delegated("urn:b", alice.did, alice_cap["id"], target, alice, allowed_action=None)
         inv = _invocation(
             child, target, alice,
-            cap_id="urn:b", action="transfer", chain=[root, alice_cap, child],
+            action="transfer", chain=[root, alice_cap, child],
         )
         trusted_chain = [
             parser.parse_capability(root),
@@ -228,11 +228,11 @@ class TestRootTrustModel:
         }
         leaf = _delegated(
             "urn:uuid:leaf", attacker.did, known_root_id, victim, attacker,
-            allowed_action=["transfer"], invoker=attacker.did,
+            allowed_action=["transfer"],
         )
         inv = _invocation(
             leaf, victim, attacker,
-            cap_id="urn:uuid:leaf", action="transfer", chain=[forged_root, leaf],
+            action="transfer", chain=[forged_root, leaf],
         )
         return forged_root, leaf, inv
 
@@ -293,6 +293,17 @@ class TestErrorContract:
         with pytest.raises(CanonicalizationError):
             verify_document_proof_w3c(doc)
 
+    @pytest.mark.parametrize("bad", [[], None, "a string", 42, ("t",)])
+    def test_non_dict_document_to_parser_raises_zcap_parse_error(self, bad: object) -> None:
+        """Red-team (2026-06-18): the public from-dict parser API must confine a
+        non-dict top-level document to the ZcapError hierarchy — previously
+        ``_validate_context`` called ``raw.get`` and leaked a raw AttributeError.
+        """
+        with pytest.raises(ZcapParseError):
+            parser.parse_capability(bad)  # type: ignore[arg-type]
+        with pytest.raises(ZcapParseError):
+            parser.parse_invocation(bad)  # type: ignore[arg-type]
+
     def test_document_loader_returning_none_raises_invocation_error(self) -> None:
         root_ctrl = generate_ed25519_keypair()
         alice = generate_ed25519_keypair()
@@ -302,7 +313,7 @@ class TestErrorContract:
         )
         inv = _invocation(
             child, target, alice,
-            cap_id="urn:b", action="read", chain=["urn:root", child],
+            action="read", chain=["urn:root", child],
         )
         # Documented .get-style loader that returns None for an unknown id.
         verifier = ZcapVerifier(document_loader=lambda _cid: None)  # type: ignore[arg-type,return-value]

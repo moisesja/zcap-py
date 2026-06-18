@@ -1,0 +1,24 @@
+{
+  "@context": [
+    "https://w3id.org/zcap/v1",
+    "https://w3id.org/security/suites/ed25519-2020/v1"
+  ],
+  "id": "urn:uuid:f363d0e1-7de5-419d-b6d0-c6ca355ff6e3",
+  "parentCapability": "urn:zcap:root:https%3A%2F%2Fapi.example.com%2Fdata%2F",
+  "controller": "did:key:z6MkmKgRpZu3qVYXTYJ38SzHfEaJ5HP6ZWPS9XQ3E5Tidip6",
+  "invocationTarget": "https://api.example.com/data/",
+  "allowedAction": [
+    "read"
+  ],
+  "expires": "2099-01-01T00:00:00Z",
+  "proof": {
+    "type": "Ed25519Signature2020",
+    "created": "2026-06-18T18:10:02Z",
+    "verificationMethod": "did:key:z6Mks6vHRon5kQ3C6d5RS2zcSiAxhA9QjqQg86t1DXPwbjkS#z6Mks6vHRon5kQ3C6d5RS2zcSiAxhA9QjqQg86t1DXPwbjkS",
+    "proofPurpose": "capabilityDelegation",
+    "capabilityChain": [
+      "urn:zcap:root:https%3A%2F%2Fapi.example.com%2Fdata%2F"
+    ],
+    "proofValue": "z3wqhvVeqnXuaVQkEEXWPU6cZD5BQB1X9AApZvfFMJWUqe19HYtyB7v1Tf6JC1RkKEC7nUpSw5qNmNUXDsEvL1aSj"
+  }
+}

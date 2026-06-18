@@ -10,6 +10,7 @@ import pytest
 from tests.conftest import make_signed_document
 from zcap_py.crypto.ed25519 import generate_ed25519_keypair
 from zcap_py.exceptions import ZcapParseError
+from zcap_py.proof.ed25519_2020_w3c import sign_document_proof_w3c
 from zcap_py.zcap.models import Capability, Invocation
 from zcap_py.zcap.parser import ZcapParser
 
@@ -64,6 +65,11 @@ def _delegated_cap_with_proof() -> dict[str, object]:
 
 
 def _invocation_with_proof() -> dict[str, object]:
+    """An invocation = a capabilityInvocation proof over a target document.
+
+    capability / invocationTarget / capabilityAction are carried in the proof
+    (signed); there is no body type/capability/invocationTarget.
+    """
     kp = generate_ed25519_keypair()
     base: dict[str, object] = {
         "@context": [
@@ -71,19 +77,19 @@ def _invocation_with_proof() -> dict[str, object]:
             "https://w3id.org/security/suites/ed25519-2020/v1",
         ],
         "id": "urn:uuid:test-invocation",
-        "type": "Invocation",
+    }
+    # Sign with the spec proof fields present BEFORE signing so the signature
+    # covers capability / invocationTarget / capabilityAction.
+    proof_metadata: dict[str, object] = {
+        "type": "Ed25519Signature2020",
+        "verificationMethod": kp.verification_method,
+        "created": "2026-01-01T00:00:00Z",
+        "proofPurpose": "capabilityInvocation",
         "capability": "urn:uuid:delegated-cap",
         "invocationTarget": "https://resource.example/api/docs/1",
+        "capabilityAction": "read",
     }
-    signed = make_signed_document(
-        base, kp.private_key, kp.verification_method, "capabilityInvocation"
-    )
-    # Invocation proofs must carry capability and capabilityAction per ZCAP-LD spec
-    proof = dict(signed["proof"])  # type: ignore[arg-type]
-    proof["capability"] = "urn:uuid:delegated-cap"
-    proof["capabilityAction"] = "read"
-    signed["proof"] = proof
-    return signed
+    return sign_document_proof_w3c(base, proof_metadata, kp.private_key)
 
 
 # ── parse_capability ──
@@ -123,12 +129,19 @@ class TestParseCapability:
         assert isinstance(cap.expires, datetime)
         assert cap.expires.year == 2026
 
-    def test_invoker_parsed(self) -> None:
+    def test_legacy_invoker_field_ignored(self) -> None:
+        """#23: the legacy ``invoker`` field is no longer part of the model.
+
+        A delegated capability carrying ``invoker`` still parses (it is an extra
+        field on a delegated cap), but the value is ignored — identity is
+        controller-only.
+        """
         parser = ZcapParser()
         raw = _delegated_cap_base()
         raw["invoker"] = ALICE_DID
         cap = parser.parse_capability(raw)
-        assert cap.invoker == ALICE_DID
+        assert not hasattr(cap, "invoker")
+        assert cap.controller == ALICE_DID
 
     def test_caveat_parsed(self) -> None:
         parser = ZcapParser()
@@ -377,27 +390,27 @@ class TestParseInvocation:
         raw: dict[str, object] = {
             "@context": ["https://w3id.org/zcap/v1"],
             "id": "urn:uuid:test",
-            "type": "Invocation",
-            "capability": "urn:uuid:cap",
-            "invocationTarget": "https://example.com/api",
         }
         with pytest.raises(ZcapParseError, match="proof") as exc_info:
             parser.parse_invocation(raw)
         assert exc_info.value.field == "proof"
 
-    def test_missing_capability_raises_error(self) -> None:
+    def test_optional_body_id(self) -> None:
+        """#11: the body ``id`` is optional (a target invocation may omit it)."""
         parser = ZcapParser()
         raw = _invocation_with_proof()
-        del raw["capability"]
-        with pytest.raises(ZcapParseError, match="capability"):
-            parser.parse_invocation(raw)
+        del raw["id"]
+        inv = parser.parse_invocation(raw)
+        assert inv.id is None
 
-    def test_wrong_type_raises_error(self) -> None:
+    def test_no_body_type_required(self) -> None:
+        """#11: there is no bespoke body ``type:"Invocation"`` — its presence or
+        absence is irrelevant; the invocation IS the capabilityInvocation proof."""
         parser = ZcapParser()
         raw = _invocation_with_proof()
-        raw["type"] = "Authorization"
-        with pytest.raises(ZcapParseError, match="type"):
-            parser.parse_invocation(raw)
+        raw["type"] = "Authorization"  # arbitrary body type is ignored
+        inv = parser.parse_invocation(raw)
+        assert inv.proof.proof_purpose == "capabilityInvocation"
 
     def test_invocation_proof_purpose_is_capability_invocation(self) -> None:
         parser = ZcapParser()
@@ -408,6 +421,39 @@ class TestParseInvocation:
         parser = ZcapParser()
         inv = parser.parse_invocation(_invocation_with_proof())
         assert inv.proof.capability == "urn:uuid:delegated-cap"
+        assert inv.capability == "urn:uuid:delegated-cap"
+
+    def test_invocation_proof_invocation_target_parsed(self) -> None:
+        """#11: proof.invocationTarget is parsed (was previously ignored)."""
+        parser = ZcapParser()
+        inv = parser.parse_invocation(_invocation_with_proof())
+        assert inv.proof.invocation_target == "https://resource.example/api/docs/1"
+        assert inv.invocation_target == "https://resource.example/api/docs/1"
+
+    def test_missing_proof_invocation_target_raises_error(self) -> None:
+        """#11: proof.invocationTarget is REQUIRED on an invocation."""
+        parser = ZcapParser()
+        raw = _invocation_with_proof()
+        proof = dict(raw["proof"])  # type: ignore[arg-type]
+        del proof["invocationTarget"]
+        raw["proof"] = proof
+        with pytest.raises(ZcapParseError, match="invocationTarget"):
+            parser.parse_invocation(raw)
+
+    def test_embedded_capability_in_proof_parsed(self) -> None:
+        """#11: proof.capability may embed the full capability object (the
+        delegated-invocation shape); the embedded object is parsed and its id
+        becomes the proof's capability reference."""
+        parser = ZcapParser()
+        raw = _invocation_with_proof()
+        embedded = _delegated_cap_with_proof()
+        proof = dict(raw["proof"])  # type: ignore[arg-type]
+        proof["capability"] = embedded
+        raw["proof"] = proof
+        inv = parser.parse_invocation(raw)
+        assert inv.embedded_capability is not None
+        assert inv.embedded_capability.id == embedded["id"]
+        assert inv.capability == embedded["id"]
 
     def test_missing_proof_purpose_raises_error(self) -> None:
         parser = ZcapParser()

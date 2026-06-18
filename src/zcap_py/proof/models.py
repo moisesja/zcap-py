@@ -16,4 +16,5 @@ class LinkedDataProof:
     proof_purpose: str
     capability: str | None = None
     capability_action: str | None = None
+    invocation_target: str | None = None
     capability_chain: tuple[str | dict[str, object], ...] | None = None

@@ -19,6 +19,7 @@ if TYPE_CHECKING:
     from collections.abc import Callable
 
     from zcap_py.zcap.models import Capability, Invocation
+    from zcap_py.zcap.relationships import RelationshipAuthorizer
 
 ProofVerifier: TypeAlias = "Callable[[dict[str, object]], None]"
 DocumentLoader: TypeAlias = "Callable[[str], dict[str, object]]"
@@ -60,6 +61,7 @@ class ZcapVerifier:
         clock: Callable[[], datetime] | None = None,
         proof_verifier: ProofVerifier | None = None,
         document_loader: DocumentLoader | None = None,
+        relationship_authorizer: RelationshipAuthorizer | None = None,
         max_chain_length: int = DEFAULT_MAX_CHAIN_LENGTH,
     ) -> None:
         self._caveats = CaveatRegistry(caveat_verifiers)
@@ -68,6 +70,7 @@ class ZcapVerifier:
         self._clock = clock or (lambda: datetime.now(tz=UTC))
         self._proof_verifier = proof_verifier
         self._document_loader = document_loader
+        self._relationship_authorizer = relationship_authorizer
         self._max_chain_length = max_chain_length
 
     def verify_delegation_chain(
@@ -88,6 +91,7 @@ class ZcapVerifier:
             allow_target_attenuation=self._allow_target_attenuation,
             target_attenuator=self._attenuator,
             proof_verifier=self._proof_verifier,
+            relationship_authorizer=self._relationship_authorizer,
             max_chain_length=self._max_chain_length,
             clock=self._clock,
         )
@@ -99,11 +103,16 @@ class ZcapVerifier:
         chain: list[Capability] | None = None,
         *,
         expected_root_id: str | None = None,
+        expected_target: str | None = None,
     ) -> None:
         """Verify an invocation against its target capability.
 
         If *capability* is ``None``, the invocation's embedded capability
         is used (if present).
+
+        *expected_target* optionally binds the invocation to the actual request
+        target: the signed ``proof.invocationTarget`` must authorize it (exact
+        match, or a valid narrowing when target attenuation is enabled).
 
         If *chain* is ``None`` and the invocation proof contains a
         ``capabilityChain``, entries are resolved automatically: embedded
@@ -235,11 +244,17 @@ class ZcapVerifier:
                 )
 
         # --- Core invocation verification (checks leaf caveats) ---
+        # expected_target binds to the verified leaf (capability is the rebound
+        # chain[-1] when a chain was supplied).
         _verify_invocation(
             invocation,
             capability,
+            expected_target=expected_target,
+            allow_target_attenuation=self._allow_target_attenuation,
+            target_attenuator=self._attenuator,
             caveat_registry=self._caveats,
             proof_verifier=self._proof_verifier,
+            relationship_authorizer=self._relationship_authorizer,
         )
 
         # --- Ancestor caveat enforcement (FR-INVOKE-07 extended) ---

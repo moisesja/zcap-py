@@ -1,0 +1,15 @@
+{
+  "generatedBy": "@digitalbazaar/zcap cross-impl KAT generator (tests/fixtures/digitalbazaar/generate.mjs)",
+  "note": "Static fixtures committed; node_modules not committed. Re-run: npm install && node generate.mjs",
+  "versions": {
+    "@digitalbazaar/zcap": "9.0.1",
+    "jsonld-signatures": "11.6.0",
+    "@digitalbazaar/ed25519-signature-2020": "5.4.0",
+    "@digitalbazaar/ed25519-verification-key-2020": "4.2.0",
+    "@digitalbazaar/security-document-loader": "3.2.0"
+  },
+  "rootController": "did:key:z6Mks6vHRon5kQ3C6d5RS2zcSiAxhA9QjqQg86t1DXPwbjkS",
+  "invoker": "did:key:z6MkmKgRpZu3qVYXTYJ38SzHfEaJ5HP6ZWPS9XQ3E5Tidip6",
+  "invocationTarget": "https://api.example.com/data/",
+  "capabilityAction": "read"
+}

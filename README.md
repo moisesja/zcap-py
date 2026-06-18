@@ -110,7 +110,7 @@ uv run python examples/key_generation.py
 
 This library is in active development, tracking full [W3C ZCAP-LD](https://w3c-ccg.github.io/zcap-spec/) / digitalbazaar compliance. See [`COMPLIANCE.md`](COMPLIANCE.md) for the requirement-by-requirement matrix and open issues.
 
-Proof verification uses the W3C `Ed25519Signature2020` (URDNA2015) algorithm and is believed byte-compatible with the digitalbazaar ecosystem; a cross-implementation known-answer test against a digitalbazaar-generated proof is still pending ([#14](https://github.com/moisesja/zcap-py/issues/14)).
+Proof verification uses the W3C `Ed25519Signature2020` (URDNA2015) algorithm and is byte-compatible with the digitalbazaar ecosystem: a cross-implementation known-answer test verifies a genuine `@digitalbazaar/zcap` proof under the default verifier ([#14](https://github.com/moisesja/zcap-py/issues/14); fixtures in [`tests/fixtures/digitalbazaar/`](tests/fixtures/digitalbazaar/)), locking the `proofHash || docHash` order and canonicalization parity.
 
 As of 0.8.0 the invocation path is materially hardened: invoking a delegated capability requires a verifiable, root-anchored chain ([#12](https://github.com/moisesja/zcap-py/issues/12)); authorization is bound to the cryptographically verified chain leaf; the chain anchor must be structurally a root ([#9](https://github.com/moisesja/zcap-py/issues/9)); and `verify_delegation_chain` enforces absolute expiry ([#20](https://github.com/moisesja/zcap-py/issues/20)). Use `ZcapVerifier` (the authoritative entry point), not the low-level `verify_invocation` building block, for trust decisions.
 
@@ -120,7 +120,7 @@ As of 0.8.0 the invocation path is materially hardened: invoking a delegated cap
 >
 > `expected_root_id` only pins `chain[0].id` (a public value) — it is **not** by itself sufficient, and it does **not** validate the root's controller/target. Do **not** rely on a chain reconstructed from invoker-supplied content for the root. Making a trusted-root dereference (e.g. `urn:zcap:root:<encoded-target>` derivation + controller binding) mandatory is tracked in [#9](https://github.com/moisesja/zcap-py/issues/9).
 
-> ℹ️ **Remaining interop gap.** The invocation document is still modelled as a bespoke `type:"Invocation"` object rather than the digitalbazaar `capabilityInvocation` Data-Integrity-proof-over-target shape ([#11](https://github.com/moisesja/zcap-py/issues/11)); the cross-implementation proof KAT ([#14](https://github.com/moisesja/zcap-py/issues/14)) is pending; and caveat *parameters* / out-of-context application fields are not covered by the signature ([#35](https://github.com/moisesja/zcap-py/issues/35)).
+> ℹ️ **Interop status.** Invocations now use the digitalbazaar `capabilityInvocation` Data-Integrity-proof-over-target shape (no bespoke `type:"Invocation"` wrapper), and the cross-implementation proof KAT against a genuine `@digitalbazaar/zcap` proof passes ([#11](https://github.com/moisesja/zcap-py/issues/11), [#14](https://github.com/moisesja/zcap-py/issues/14) — done in 0.9.0). **Remaining gap:** caveat *parameters* / out-of-context application fields are not covered by the signature ([#35](https://github.com/moisesja/zcap-py/issues/35)).
 
 ## Reference Specification
 

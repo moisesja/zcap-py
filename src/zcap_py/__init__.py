@@ -40,10 +40,11 @@ from zcap_py.proof.models import LinkedDataProof
 from zcap_py.zcap.caveats import CaveatRegistry, CaveatVerifier
 from zcap_py.zcap.models import Capability, Invocation
 from zcap_py.zcap.parser import ZcapParser
+from zcap_py.zcap.relationships import RelationshipAuthorizer, did_key_relationship_authorizer
 from zcap_py.zcap.target_attenuation import InvocationTargetAttenuator, PathPrefixAttenuator
 from zcap_py.zcap.verifier import DocumentLoader, ProofVerifier, ZcapVerifier
 
-__version__ = "0.8.0"
+__version__ = "0.9.0"
 
 __all__ = [
     "__version__",
@@ -81,6 +82,8 @@ __all__ = [
     "PathPrefixAttenuator",
     "ProofVerifier",
     "DocumentLoader",
+    "RelationshipAuthorizer",
+    "did_key_relationship_authorizer",
     # Exceptions
     "ZcapError",
     "ZcapParseError",
