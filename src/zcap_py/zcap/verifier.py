@@ -254,15 +254,26 @@ class ZcapVerifier:
         self,
         chain_entries: tuple[str | dict[str, object], ...],
     ) -> list[Capability]:
-        """Resolve capabilityChain entries into Capability objects.
+        """Resolve an invoker-supplied ``proof.capabilityChain`` into Capabilities.
 
-        Embedded (dict) entries are parsed directly.  String entries are
-        resolved via the configured ``document_loader``.  If no loader is
-        configured, string entries raise :class:`InvocationError`.
+        SECURITY: the chain comes from the (untrusted) invocation proof. The
+        **root** (entry 0) is the trust anchor and its own proof is never
+        verified, so it MUST NOT be taken from invoker-supplied content. Per the
+        ZCAP-LD spec the root is referenced *by id*; this verifier resolves that
+        id through the trusted ``document_loader``. An **embedded root dict** is
+        rejected — otherwise an attacker fabricates a root with their own
+        controller and anchors a self-signed chain to it (forged-root bypass).
+
+        Callers who hold a trusted root should instead pass an explicit
+        ``chain=[trusted_root, ...]`` to :meth:`verify_invocation`.
+
+        Embedded (dict) entries after the root are parsed directly; string
+        entries are resolved via the configured ``document_loader``.
 
         Raises:
-            InvocationError: If a string entry is encountered without a
-                configured document loader.
+            InvocationError: If the root entry is embedded, or a string entry is
+                encountered without a configured document loader, or the loader
+                fails / returns a non-object.
         """
         from zcap_py.exceptions import ZcapError
         from zcap_py.zcap.parser import ZcapParser
@@ -270,6 +281,14 @@ class ZcapVerifier:
         p = ZcapParser()
         result: list[Capability] = []
         for i, entry in enumerate(chain_entries):
+            if i == 0 and not isinstance(entry, str):
+                raise InvocationError(
+                    "capabilityChain[0] (the root) must be referenced by id, not "
+                    "embedded: the verifier resolves the trust anchor from a trusted "
+                    "document_loader, never from invoker-supplied content. Pass an "
+                    "explicit chain=[trusted_root, ...] if you hold the root.",
+                    context={"index": 0, "entry_type": type(entry).__name__},
+                )
             if isinstance(entry, str):
                 if self._document_loader is None:
                     raise InvocationError(

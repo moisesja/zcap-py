@@ -112,9 +112,15 @@ This library is in active development, tracking full [W3C ZCAP-LD](https://w3c-c
 
 Proof verification uses the W3C `Ed25519Signature2020` (URDNA2015) algorithm and is believed byte-compatible with the digitalbazaar ecosystem; a cross-implementation known-answer test against a digitalbazaar-generated proof is still pending ([#14](https://github.com/moisesja/zcap-py/issues/14)).
 
-The invocation path is **secure-by-default** as of 0.8.0: invoking a delegated capability requires a verifiable, root-anchored chain ([#12](https://github.com/moisesja/zcap-py/issues/12)), the chain anchor must be a genuine root ([#9](https://github.com/moisesja/zcap-py/issues/9)), and `verify_delegation_chain` enforces absolute expiry ([#20](https://github.com/moisesja/zcap-py/issues/20)). Use `ZcapVerifier` (the authoritative entry point) rather than the low-level `verify_invocation` building block for trust decisions.
+As of 0.8.0 the invocation path is materially hardened: invoking a delegated capability requires a verifiable, root-anchored chain ([#12](https://github.com/moisesja/zcap-py/issues/12)); authorization is bound to the cryptographically verified chain leaf; the chain anchor must be structurally a root ([#9](https://github.com/moisesja/zcap-py/issues/9)); and `verify_delegation_chain` enforces absolute expiry ([#20](https://github.com/moisesja/zcap-py/issues/20)). Use `ZcapVerifier` (the authoritative entry point), not the low-level `verify_invocation` building block, for trust decisions.
 
-> ℹ️ **Remaining interop gap.** The invocation document is still modelled as a bespoke `type:"Invocation"` object rather than the digitalbazaar `capabilityInvocation` Data-Integrity-proof-over-target shape ([#11](https://github.com/moisesja/zcap-py/issues/11)), and the cross-implementation proof KAT ([#14](https://github.com/moisesja/zcap-py/issues/14)) is still pending.
+> ⚠️ **The root is the trust anchor — you must supply it from a trusted source.** A root capability carries no proof and cannot be cryptographically verified, so the verifier trusts whatever root it is given. Safe patterns:
+> - pass an explicit `chain=[trusted_root, ...]` whose root you obtained from a trusted store, **or**
+> - configure a trusted `document_loader`; the verifier resolves the root **by id** and **rejects an embedded root** in the invoker-supplied `proof.capabilityChain`.
+>
+> `expected_root_id` only pins `chain[0].id` (a public value) — it is **not** by itself sufficient, and it does **not** validate the root's controller/target. Do **not** rely on a chain reconstructed from invoker-supplied content for the root. Making a trusted-root dereference (e.g. `urn:zcap:root:<encoded-target>` derivation + controller binding) mandatory is tracked in [#9](https://github.com/moisesja/zcap-py/issues/9).
+
+> ℹ️ **Remaining interop gap.** The invocation document is still modelled as a bespoke `type:"Invocation"` object rather than the digitalbazaar `capabilityInvocation` Data-Integrity-proof-over-target shape ([#11](https://github.com/moisesja/zcap-py/issues/11)); the cross-implementation proof KAT ([#14](https://github.com/moisesja/zcap-py/issues/14)) is pending; and caveat *parameters* / out-of-context application fields are not covered by the signature ([#35](https://github.com/moisesja/zcap-py/issues/35)).
 
 ## Reference Specification
 

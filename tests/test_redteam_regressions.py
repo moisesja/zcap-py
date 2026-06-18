@@ -122,10 +122,16 @@ class TestAuthorizationHijack:
             forged, secret, attacker,
             cap_id="urn:zcap:cap-1", action="transfer", chain=[root, legit_leaf],
         )
+        # Caller supplies the genuine, trusted chain (the safe pattern). The
+        # forged capability is embedded in the invocation body. Authorization must
+        # bind to the verified leaf, not the forged embedded capability.
+        trusted_chain = [parser.parse_capability(root), parser.parse_capability(legit_leaf)]
         verifier = ZcapVerifier()
         with pytest.raises(InvocationError):
             verifier.verify_invocation(
-                parser.parse_invocation(inv), expected_root_id="urn:zcap:root:alice"
+                parser.parse_invocation(inv),
+                chain=trusted_chain,
+                expected_root_id="urn:zcap:root:alice",
             )
 
     def test_genuine_invocation_still_passes(self) -> None:
@@ -141,8 +147,11 @@ class TestAuthorizationHijack:
             legit_leaf, victim, alice,
             cap_id="urn:zcap:cap-1", action="read", chain=[root, legit_leaf],
         )
+        trusted_chain = [parser.parse_capability(root), parser.parse_capability(legit_leaf)]
         ZcapVerifier().verify_invocation(
-            parser.parse_invocation(inv), expected_root_id="urn:zcap:root:alice"
+            parser.parse_invocation(inv),
+            chain=trusted_chain,
+            expected_root_id="urn:zcap:root:alice",
         )
 
 
@@ -164,8 +173,15 @@ class TestActionAttenuationOmission:
             child, target, alice,
             cap_id="urn:b", action="transfer", chain=[root, alice_cap, child],
         )
+        trusted_chain = [
+            parser.parse_capability(root),
+            parser.parse_capability(alice_cap),
+            parser.parse_capability(child),
+        ]
         with pytest.raises(InvocationError, match="effective allowedAction"):
-            ZcapVerifier().verify_invocation(parser.parse_invocation(inv))
+            ZcapVerifier().verify_invocation(
+                parser.parse_invocation(inv), chain=trusted_chain
+            )
 
     def test_omission_then_rebroaden_in_chain_is_rejected(self) -> None:
         # root(all) -> a[read] -> b(omit, inherits read) -> c[read,write].
@@ -189,6 +205,56 @@ class TestActionAttenuationOmission:
         )
         with pytest.raises(ChainVerificationError):
             verify_delegation_chain(root, [a, b, c])
+
+
+class TestRootTrustModel:
+    """#9 root-anchor trust model — what is and is not closed.
+
+    The root is the trust anchor; it carries no proof and cannot be
+    cryptographically verified. The verifier therefore must obtain it from a
+    TRUSTED source. Two safe sources: a caller-supplied ``chain`` (the caller
+    vouches for the root), or a trusted ``document_loader`` resolving the root by
+    id. An embedded root in the invoker-supplied ``proof.capabilityChain`` is
+    NOT trusted and is rejected.
+    """
+
+    def _forged(self) -> tuple[dict[str, object], dict[str, object], dict[str, object]]:
+        attacker = generate_ed25519_keypair()
+        known_root_id = "urn:zcap:root:alice"  # public, non-secret
+        victim = "https://bank.example/accounts/victim"
+        forged_root = {
+            "@context": ZCAP, "id": known_root_id,
+            "controller": attacker.did, "invocationTarget": victim,
+        }
+        leaf = _delegated(
+            "urn:uuid:leaf", attacker.did, known_root_id, victim, attacker,
+            allowed_action=["transfer"], invoker=attacker.did,
+        )
+        inv = _invocation(
+            leaf, victim, attacker,
+            cap_id="urn:uuid:leaf", action="transfer", chain=[forged_root, leaf],
+        )
+        return forged_root, leaf, inv
+
+    def test_forged_root_embedded_in_proof_chain_is_rejected(self) -> None:
+        # The reviewer's PoC: forged root embedded in proof.capabilityChain, with
+        # expected_root_id pinned. Now rejected (root must come from a trusted
+        # source, not invoker-supplied content).
+        _root, _leaf, inv = self._forged()
+        with pytest.raises(InvocationError, match="must be referenced by id"):
+            ZcapVerifier().verify_invocation(
+                parser.parse_invocation(inv), expected_root_id="urn:zcap:root:alice"
+            )
+
+    def test_caller_supplied_untrusted_root_is_trusted_by_design(self) -> None:
+        # KNOWN CONTRACT (residual #9): if the application itself passes an
+        # untrusted root in `chain`, the verifier trusts it — the root is the
+        # trust anchor and the verifier cannot verify it. Applications MUST supply
+        # a root from a trusted store. This test documents that contract.
+        forged_root, leaf, inv = self._forged()
+        chain = [parser.parse_capability(forged_root), parser.parse_capability(leaf)]
+        # Accepted because the CALLER vouched for the (here, attacker-chosen) root.
+        ZcapVerifier().verify_invocation(parser.parse_invocation(inv), chain=chain)
 
 
 class TestErrorContract:

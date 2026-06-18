@@ -9,7 +9,7 @@
 
 > **Progress** (the matrix below is the original audit snapshot; consult the linked issues for current status):
 > - **0.7.0** — #13 (W3C-only proof path), #14 signer, #10 (required `expires`), #22 (chain-length cap). Superseded #5/#8.
-> - **0.8.0** — #9 (genuine root trust anchor), #12 (delegated invocation requires a verified root-anchored chain), #20 (absolute-expiry fail-closed in `verify_delegation_chain`). The invocation path is now secure-by-default.
+> - **0.8.0** — #12 (delegated invocation requires a verified root-anchored chain), #20 (absolute-expiry fail-closed in `verify_delegation_chain`), and red-team criticals #32 (authority bound to verified leaf) / #33 (effective allowedAction) / #26 (target dot-segments) / #34 (error contract). #9 is **partially** addressed: the forged-root bypass is closed on the auto-resolved chain path (embedded root rejected; root resolved via trusted loader), but the root remains the trust anchor — supply it from a trusted source; `expected_root_id` validates only the id. A mandatory trusted-root dereference is still tracked under #9.
 
 ## Scorecard
 
