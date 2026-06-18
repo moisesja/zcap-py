@@ -33,6 +33,22 @@ node generate.mjs  # emits root.json, delegated.json, invocation.json, meta.json
 `generate.mjs` also runs `jsonld-signatures` `verify()` as a self-check; it prints
 `digitalbazaar self-verification: PASSED` when the emitted invocation is a valid digitalbazaar artifact.
 
+### Round-trip — both directions
+
+- **digitalbazaar → zcap-py** is the committed, CI-enforced KAT: `tests/test_kat_digitalbazaar.py` verifies the
+  digitalbazaar-produced `invocation.json` under zcap-py's default verifier.
+- **zcap-py → digitalbazaar** is checked out-of-band by `roundtrip-verify.mjs`: it verifies a *zcap-py-produced*
+  invocation under the genuine digitalbazaar `jsonld-signatures` `CapabilityInvocation` verifier. To reproduce:
+
+  ```sh
+  uv run python - <<'PY'   # (or run a script that signs with zcap_py.sign_document_proof_w3c)
+  # writes /tmp/py_zcap/{root,delegated,invocation}.json
+  PY
+  node roundtrip-verify.mjs   # prints "py -> digitalbazaar verification: PASSED"
+  ```
+
+  This confirms byte-identical verify-data in both directions (Node is not required for the Python test suite).
+
 Each regeneration uses freshly generated did:key keypairs and random `urn:uuid:` ids, so the fixtures differ
 byte-for-byte run to run but remain valid. The `created` timestamp reflects the generation clock.
 
