@@ -82,7 +82,11 @@ class InvocationError(ZcapError):
 
 
 class InvokerMismatchError(InvocationError):
-    """Raised when invoker DID does not match capability controller/invoker."""
+    """Raised when the invoking DID does not match the capability controller.
+
+    (The current ZCAP-LD spec is controller-only; the legacy ``invoker`` field
+    is no longer honored.)
+    """
 
 
 class CapabilityExpiredError(InvocationError):

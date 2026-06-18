@@ -42,7 +42,7 @@ The library is scoped to the **verifiable security kernel**: key derivation, can
 - Revocation checking
 - W3C ZCAP-LD test suite runner (can be added later as separate package)
 - **Capability document signing and construction** — this is the responsibility of the companion package `zcap-py-builder`. The core `zcap-py` is a _verification-only_ library
-- **Fixture file generation** — generation scripts live in `zcap-ld-fixtures`; `zcap-py` only _consumes_ them in tests
+- **Fixture file generation** — generation scripts live in `zcap-ld-fixtures`; `zcap-py` only _consumes_ them in tests. **Exception:** a single cross-implementation known-answer-test fixture set produced by the genuine `@digitalbazaar/zcap` stack is committed under `tests/fixtures/digitalbazaar/` (with its `generate.mjs`), because it is the concrete external anchor that locks byte-identical `Ed25519Signature2020` verify-data (issue #14); `node_modules` is not committed and Node is not required to run the Python tests
 
 ---
 
@@ -88,8 +88,7 @@ A delegated capability grants a subset of the root (or parent) authority to a ne
   "@context": ["https://w3id.org/zcap/v1", "https://w3id.org/security/suites/ed25519-2020/v1"],
   "id": "urn:uuid:<uuid>",
   "type": "Authorization",
-  "controller": "<delegatee DID>",
-  "invoker": "<invoker DID>",            // optional; if absent, controller == invoker
+  "controller": "<delegatee DID>",       // the (sole) invoker identity — legacy `invoker` is not used
   "parentCapability": "<parent cap id>", // REQUIRED — links this to its parent
   "invocationTarget": "<URI>",           // == parent's target, or a narrowed sub-path
   "allowedAction": ["read"],             // ⊆ parent's allowedAction
@@ -101,7 +100,11 @@ A delegated capability grants a subset of the root (or parent) authority to a ne
 
 **3. Invocation**
 
-An invocation is presented by an invoker at runtime to exercise a capability. It asserts which capability is being invoked and proves the invoker's identity and intent via a cryptographic proof.
+Per the current ZCAP-LD spec and `@digitalbazaar/zcap`, an invocation **is** a `capabilityInvocation`
+Data-Integrity proof signed over the target document — there is no bespoke `type:"Invocation"` wrapper and
+no body-level duplication. The invoked `capability`, `invocationTarget`, and `capabilityAction` are carried
+in the proof. `proof.capability` is either a **string id** (root invocation) or the **embedded full
+capability object** (delegated invocation, carrying its own `capabilityChain`).
 
 ```jsonc
 {
@@ -109,16 +112,15 @@ An invocation is presented by an invoker at runtime to exercise a capability. It
     "https://w3id.org/zcap/v1",
     "https://w3id.org/security/suites/ed25519-2020/v1",
   ],
-  "id": "urn:uuid:<uuid>",
-  "type": "Invocation",
-  "capability": "<capability id>", // the leaf capability being exercised
-  "invocationTarget": "<URI>", // must == capability.invocationTarget
+  "id": "urn:uuid:<uuid>",                 // optional — the signed target document's id
+  // …any application target-representation fields…
   "proof": {
     "type": "Ed25519Signature2020",
     "verificationMethod": "<invoker DID>#<fragment>",
-    "capability": "<capability id>", // must match body.capability
-    "capabilityAction": "read", // must be ∈ capability.allowedAction
     "proofPurpose": "capabilityInvocation",
+    "capability": "<capability id | embedded capability object>", // invoked capability
+    "invocationTarget": "<URI>",           // signed; bound to the verified-leaf target (and request)
+    "capabilityAction": "read",            // must be ∈ effective allowedAction
     "created": "2025-06-01T12:00:00Z",
     "proofValue": "<multibase-z encoded Ed25519 signature>",
   },
@@ -208,12 +210,13 @@ The full delegation chain verification semantics:
 
 | ID           | Requirement                                                                                                                                                                                         |
 | ------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| FR-INVOKE-01 | **Capability reference.** `invocation.proof.capability` must equal `capability.id`. Raise `InvocationError`                                                                                         |
-| FR-INVOKE-02 | **invocationTarget match.** `invocation.invocationTarget == capability.invocationTarget`. Raise `InvocationError`                                                                                   |
-| FR-INVOKE-03 | **Invoker identity.** The DID of `invocation.proof.verificationMethod` (stripped of fragment) must equal `capability.controller` (or `capability.invoker` if present). Raise `InvokerMismatchError` |
-| FR-INVOKE-04 | **Proof/body consistency.** `invocation.capability` (body field) must equal `invocation.proof.capability`. Raise `InvocationError`                                                                  |
+| FR-INVOKE-00 | **proofPurpose (verify-time).** `invocation.proof.proofPurpose` must equal `capabilityInvocation`, re-asserted at verify time independent of the parser (catches a pre-built/wrong-purpose model). Raise `InvocationError` |
+| FR-INVOKE-01 | **Capability reference.** `invocation.proof.capability` (a string id, or the id of the embedded capability object) must equal `capability.id`. Raise `InvocationError`                                |
+| FR-INVOKE-02 | **invocationTarget binding.** The **signed** `invocation.proof.invocationTarget` must be authorized by the (verified-leaf) `capability.invocationTarget` (exact match, or a valid narrowing when target attenuation is enabled). When an `expected_target` (the real request target) is supplied, it must likewise be authorized by `proof.invocationTarget`. Raise `InvocationError` |
+| FR-INVOKE-03 | **Invoker identity (controller-only).** The DID of `invocation.proof.verificationMethod` (stripped of fragment) must equal `capability.controller`. The legacy `invoker` field is not honored. Raise `InvokerMismatchError` |
+| FR-INVOKE-04 | **Verification-relationship authorization.** The invoker's verification method must be authorized by its controller for the `capabilityInvocation` relationship (for `did:key`, the single key is authorized for every relationship; pluggable via `RelationshipAuthorizer`). Raise `ProofError` |
 | FR-INVOKE-05 | **capabilityAction mandatory.** When `capability.allowedAction` is set, `invocation.proof.capabilityAction` is **required** and must be a member of `allowedAction`. Raise `InvocationError` if absent or not in the set |
-| FR-INVOKE-06 | Verify the invocation's cryptographic proof using the configured `proof_verifier` (defaults to JCS; see FR-PROOF-07)                                                                                |
+| FR-INVOKE-06 | Verify the invocation's cryptographic proof using the configured `proof_verifier` (defaults to W3C URDNA2015 `Ed25519Signature2020`; see FR-PROOF-07)                                              |
 | FR-INVOKE-07 | Run all registered `CaveatVerifier` plugins against the invocation for the **leaf capability and all ancestor capabilities** in the chain; raise `CaveatError` if any fail                          |
 | FR-INVOKE-08 | **Chain-to-capability linkage.** When a delegation chain is provided, `chain[-1].id` must equal `capability.id`. Raise `InvocationError` if the chain does not terminate at the invoked capability   |
 | FR-INVOKE-09 | **Absolute expiry check.** All capabilities in the chain (plus the target capability) must be checked against the current clock. Raise `CapabilityExpiredError` if any have expired                  |
@@ -263,23 +266,26 @@ class ZcapParser:
             invocation_target=raw["invocationTarget"],
             allowed_action=list(raw["allowedAction"]),
             expires=expires,
-            invoker=raw.get("invoker"),
             caveat=list(raw.get("caveat", [])),
             proof=proof,
             raw=raw,
         )
 
     def parse_invocation(self, raw: dict) -> Invocation:
-        self._require_str(raw, "id")
-        self._require_type(raw, "Invocation")
-        self._require_str(raw, "capability")
-        self._require_str(raw, "invocationTarget")
+        # An invocation IS a capabilityInvocation proof over the target document.
+        # capability / invocationTarget / capabilityAction live in the proof; no
+        # body type/capability/invocationTarget. proof.capability may be a string
+        # id or an embedded capability object.
         proof = self._parse_proof(raw["proof"])  # proof is mandatory on invocations
+        embedded = (
+            self.parse_capability(raw["proof"]["capability"])
+            if isinstance(raw["proof"].get("capability"), dict)
+            else None
+        )
         return Invocation(
-            id=raw["id"],
-            capability=raw["capability"],
-            invocation_target=raw["invocationTarget"],
-            proof=proof,
+            id=raw.get("id"),  # optional
+            proof=proof,       # proof.capability / .invocation_target carry the references
+            embedded_capability=embedded,
             raw=raw,
         )
 
@@ -562,22 +568,23 @@ class LinkedDataProof:
     created: str                    # ISO 8601
     proof_value: str                # multibase-z
     proof_purpose: str = "capabilityDelegation"
-    capability: Optional[str] = None
+    capability: Optional[str] = None         # invoked capability id (from string or embedded object)
     capability_action: Optional[str] = None
+    invocation_target: Optional[str] = None  # signed proof.invocationTarget
     capability_chain: Optional[tuple[str | dict, ...]] = None  # capabilityChain entries
 
 @dataclass(frozen=True)
 class Capability:
     id: str
-    controller: str | list[str]    # string or array of DID strings
+    controller: str | list[str]    # string or array of DID strings — the sole invoker identity
     parent_capability: Optional[str]   # None == this IS the root capability
     invocation_target: str
     allowed_action: Optional[list[str]]
     expires: Optional[datetime]
-    invoker: Optional[str]             # if distinct from controller
     caveat: list[dict] = field(default_factory=list)
     proof: Optional[LinkedDataProof] = None  # None is valid for root capabilities
     raw: dict = field(default_factory=dict, compare=False)
+    # NOTE: the legacy `invoker` field was removed (current spec is controller-only).
 
     @property
     def is_root(self) -> bool:
@@ -586,12 +593,17 @@ class Capability:
 
 @dataclass(frozen=True)
 class Invocation:
-    id: str
-    capability: str                              # references Capability.id (extracted from embedded dict if needed)
-    invocation_target: str
+    # An invocation IS a capabilityInvocation proof over the target document.
     proof: LinkedDataProof
-    embedded_capability: Optional[Capability] = None  # parsed from embedded dict in 'capability' field
+    id: Optional[str] = None                          # optional target-document id
+    embedded_capability: Optional[Capability] = None  # parsed when proof.capability is an embedded object
     raw: dict = field(default_factory=dict, compare=False)
+
+    # capability / invocation_target are read-only properties over `proof`:
+    @property
+    def capability(self) -> Optional[str]: return self.proof.capability
+    @property
+    def invocation_target(self) -> Optional[str]: return self.proof.invocation_target
 ```
 
 ### 5.3 ZcapVerifier & AsyncZcapVerifier Facades
@@ -820,16 +832,19 @@ ZcapVerifier.verify_invocation(invocation, capability=None, chain=None)
   5. FR-INVOKE-09: For each cap in (chain ∪ {capability}):
      Assert cap.expires is None OR cap.expires > now                → CapabilityExpiredError
 
-  ── Core invocation checks ──
-  6. Assert invocation.proof.capability == capability.id            → InvocationError
-  7. Assert invocation.capability == capability.id                  → InvocationError (body/proof mismatch)
-  8. Assert invocation.invocationTarget == capability.invocationTarget → InvocationError
+  ── Core invocation checks ──  (capability is rebound to the VERIFIED chain leaf chain[-1])
+  6. FR-INVOKE-00: Assert invocation.proof.proofPurpose == "capabilityInvocation" → InvocationError
+  7. FR-INVOKE-01: Assert invocation.proof.capability == capability.id            → InvocationError
+  8. FR-INVOKE-02: Assert proof.invocationTarget authorized by capability.invocationTarget
+     (exact, or narrowing if attenuation); if expected_target given, it must be authorized by
+     proof.invocationTarget                                          → InvocationError
   9. Extract invoker_did = DID URL of invocation.proof.verificationMethod (strip fragment)
- 10. Assert invoker_did == (capability.invoker ?? capability.controller) → InvokerMismatchError
+ 10. FR-INVOKE-03: Assert invoker_did == capability.controller       → InvokerMismatchError
  11. FR-INVOKE-05: If capability.allowedAction is not None:
      Assert invocation.proof.capabilityAction is not None           → InvocationError
      Assert capabilityAction ∈ capability.allowedAction             → InvocationError
- 12. Cryptographic proof via proof_verifier (default: JCS)          → SignatureVerificationError
+ 11b. FR-INVOKE-04: relationship_authorizer(proof.verificationMethod, "capabilityInvocation") → ProofError
+ 12. Cryptographic proof via proof_verifier (default: W3C URDNA2015) → SignatureVerificationError
  13. For each caveat in capability.caveat:
      Find registered CaveatVerifier by caveat["type"]               → UnknownCaveatError
      verifier.verify(caveat, invocation.raw)
@@ -1468,7 +1483,7 @@ The core JCS-based `verify_document_proof()` remains the default for `zcap-dotne
 | Malformed document injection             | All raw-dict input gated through `ZcapParser` before any verification; `ZcapParseError` raised before cryptographic operations begin                                                                                                                                                                                                                          |
 | Malformed DID injection                  | DID parsing in `did/url.py` uses strict regex + structural validation; raises `DidParseError` on any deviation                                                                                                                                                                                                                                                |
 | Proof stripping attack                   | `ZcapParser` requires `proof` on invocations unconditionally; missing proof raises `ZcapParseError` at parse time, before verification                                                                                                                                                                                                                        |
-| Confused deputy                          | `invoker` field explicitly checked in invocation verifier; if absent, falls back to `controller`; never inferred from proof content alone                                                                                                                                                                                                                     |
+| Confused deputy                          | Invoker identity is the capability `controller` only (the legacy `invoker` override was removed — it diverged from the current spec and `@digitalbazaar/zcap`); authority binds to the cryptographically verified chain leaf, never inferred from invoker-supplied/embedded content                                                                              |
 | Caveat bypass                            | Fail-closed: unknown caveat types raise `UnknownCaveatError`; verifier never silently skips unrecognized caveats                                                                                                                                                                                                                                              |
 | JCS non-determinism                      | Float serialization tested against RFC 8785 Appendix B test vectors; `canonicalize()` returns `bytes`, not `str`, preventing encoding ambiguity at the boundary                                                                                                                                                                                               |
 | Chain truncation                         | `verify_delegation_chain` verifies every link in order; a partial chain is detected by the `parentCapability` linkage check at the first gap                                                                                                                                                                                                                  |

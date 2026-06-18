@@ -7,6 +7,48 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Released]
 
+## [0.9.0] - 2026-06-18
+
+W3C / digitalbazaar compliance — phase 3 (P0 invocation model + interop). Replaces the bespoke
+invocation wrapper with the spec/`@digitalbazaar/zcap` `capabilityInvocation` Data-Integrity-proof-over-target
+model, removes the legacy `invoker` field, enforces `proofPurpose` at verify time, and locks
+byte-identical proof parity against a genuine digitalbazaar known-answer test. Tracked by
+[COMPLIANCE.md](COMPLIANCE.md) and issues
+[#11](https://github.com/moisesja/zcap-py/issues/11) /
+[#14](https://github.com/moisesja/zcap-py/issues/14) /
+[#23](https://github.com/moisesja/zcap-py/issues/23) /
+[#28](https://github.com/moisesja/zcap-py/issues/28).
+
+### Changed (BREAKING)
+
+- **An invocation is now a `capabilityInvocation` Data-Integrity proof over the target document** (issue [#11](https://github.com/moisesja/zcap-py/issues/11)). The bespoke standalone `type:"Invocation"` document with body-level `capability`/`invocationTarget` is gone — neither the current spec nor `@digitalbazaar/zcap` define it. `capability`, `invocationTarget`, and `capabilityAction` are read from the **proof**. `parse_invocation` no longer requires a body `type`; the body `id` is optional. A genuine `@digitalbazaar/zcap` invocation now parses and verifies, and our invocations are recognizable to digitalbazaar.
+- **`proof.invocationTarget` is parsed and bound** (issue [#11](https://github.com/moisesja/zcap-py/issues/11)). `LinkedDataProof` gains `invocation_target`; `parse_invocation` **requires** it. At verify time the **signed** `proof.invocationTarget` (not any body field) must be authorized by the cryptographically verified chain-leaf target — closing the gap where a malicious signed target behind a benign body was ignored. New `expected_target` keyword on `ZcapVerifier.verify_invocation` / `verify_invocation` binds the invocation to the **actual request target** (exact match, or a valid narrowing when target attenuation is enabled).
+- **`proof.capability` accepts a string id or an embedded capability object.** Per the digitalbazaar model, a root invocation references the root by id string, while a delegated invocation embeds the full delegated zcap (carrying its own `capabilityChain`). The embedded object is surfaced as `Invocation.embedded_capability` and reduced to its id for the proof reference.
+- **`Invocation` model**: `capability` / `invocation_target` are now read-only properties over `proof`; `id` is `str | None`. **`Capability.invoker` removed** (issue [#23](https://github.com/moisesja/zcap-py/issues/23)).
+- **Legacy `invoker` removed; identity is controller-only** (issue [#23](https://github.com/moisesja/zcap-py/issues/23)). The current spec dropped `invoker`; honoring it (it overrode `controller`) was a confused-deputy divergence from `@digitalbazaar/zcap`. A delegated capability carrying an `invoker` field still parses, but the value is ignored.
+
+### Security
+
+- **`proofPurpose` is re-asserted at verify time, independent of the parser** (issue [#28](https://github.com/moisesja/zcap-py/issues/28)). `_verify_delegation_link` requires `proofPurpose == capabilityDelegation` and `verify_invocation` requires `capabilityInvocation` — so a wrong-purpose proof on a **pre-built model** (not produced by the parser) is rejected, not silently trusted.
+- **Verification-relationship authorization seam** (issue [#28](https://github.com/moisesja/zcap-py/issues/28)). New `zcap_py.zcap.relationships` with `RelationshipAuthorizer` and the default `did_key_relationship_authorizer`, called for the signer/invoker key before the cryptographic step. For `did:key` the single key is authorized for every relationship; the seam (pluggable via `ZcapVerifier(relationship_authorizer=…)`) is where non-`did:key` controller-document resolution will live. Mirrors zcap-dotnet's `IVerificationRelationshipResolver`.
+- **Error-contract hardening (adversarial red-team)** — a PoC-driven red-team of the new model (4 parallel agents, ~40 real PoCs) found **no authority bypass** across target-binding, embedded-capability hijack, proofPurpose/relationship/identity, and error-contract surfaces. One low-severity gap was fixed: the from-dict parser API (`parse_capability`/`parse_invocation`) raised a raw `AttributeError` on a non-dict top-level document; `_validate_context` now confines it to `ZcapParseError` (regression-tested).
+
+### Added
+
+- **Cross-implementation known-answer test against genuine `@digitalbazaar/zcap`** (issue [#14](https://github.com/moisesja/zcap-py/issues/14)). `tests/fixtures/digitalbazaar/` ships a root + delegated capability + invocation produced by the real digitalbazaar stack (`@digitalbazaar/zcap` + `jsonld-signatures` + `@digitalbazaar/ed25519-signature-2020`), plus a committed generator (`generate.mjs`, `package.json`; `node_modules` is gitignored). `tests/test_kat_digitalbazaar.py` proves our parser accepts the real shape and that a digitalbazaar Ed25519Signature2020 proof verifies under our default URDNA2015 verifier — locking the `proofHash || docHash` order and canonicalization byte parity to a concrete external answer. **This resolves the previously believed-pending byte-parity assumption.** A guard test asserts the bundled `zcap-v1` / `ed25519-2020` contexts stay byte-identical (semantically) to digitalbazaar's, so a silent context bump is caught.
+- `RelationshipAuthorizer` and `did_key_relationship_authorizer` exported from the package root.
+
+### Breaking-change summary (for upgraders)
+
+- Build an invocation as a `capabilityInvocation` proof over a target document; put `capability` / `invocationTarget` / `capabilityAction` in `proof`, **not** the body. Drop `type:"Invocation"`.
+- `Invocation.capability` / `.invocation_target` are now derived from `proof` (and may be `None`); `Invocation.id` may be `None`.
+- `Capability.invoker` no longer exists; identity is `controller` only.
+- `proof.invocationTarget` is **required** on an invocation.
+
+### Compliance / interop
+
+- `zcap-dotnet` mirror (per COMPLIANCE.md): model invocation as a `capabilityInvocation` proof over the target (no standalone object) and bind/verify `proof.invocationTarget`; drop `invoker` (controller-only); add the verify-time `proofPurpose` + `IVerificationRelationshipResolver` gate; add the same digitalbazaar KAT to prove .NET ↔ Python byte-identical verify-data.
+
 ## [0.8.0] - 2026-06-16
 
 W3C / digitalbazaar compliance — phase 2 (P0 invocation security). Makes the

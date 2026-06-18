@@ -1,0 +1,18 @@
+{
+  "name": "zcap-py-digitalbazaar-kat-generator",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "One-off generator for the @digitalbazaar/zcap cross-implementation known-answer-test fixtures consumed by zcap-py's test suite. node_modules is NOT committed; only the generated *.json fixtures are.",
+  "scripts": {
+    "generate": "node generate.mjs"
+  },
+  "dependencies": {
+    "@digitalbazaar/did-method-key": "^5.3.0",
+    "@digitalbazaar/ed25519-signature-2020": "^5.4.0",
+    "@digitalbazaar/ed25519-verification-key-2020": "^4.2.0",
+    "@digitalbazaar/security-document-loader": "^3.2.0",
+    "@digitalbazaar/zcap": "^9.0.1",
+    "jsonld-signatures": "^11.6.0"
+  }
+}

@@ -1,0 +1,6 @@
+{
+  "@context": "https://w3id.org/zcap/v1",
+  "id": "urn:zcap:root:https%3A%2F%2Fapi.example.com%2Fdata%2F",
+  "controller": "did:key:z6Mks6vHRon5kQ3C6d5RS2zcSiAxhA9QjqQg86t1DXPwbjkS",
+  "invocationTarget": "https://api.example.com/data/"
+}

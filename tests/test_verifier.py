@@ -72,19 +72,26 @@ def _make_invocation(
     invoker_key: object,
     invoker_vm: str,
     *,
-    cap_id: str = "urn:delegated:cap",
+    cap_id: str | dict[str, object] = "urn:delegated:cap",
     target: str = "https://api.example.com/data/",
+    proof_target: str | None = None,
     capability_action: str | None = "read",
+    capability_chain: list[object] | None = None,
 ) -> dict[str, object]:
+    """Build a signed invocation: a capabilityInvocation proof over a target doc.
+
+    ``cap_id`` may be a string reference or an embedded full capability object
+    (the delegated-invocation shape). capability/invocationTarget/capabilityAction
+    (and optional capabilityChain) live in the (signed) proof — there is no body
+    type/capability/invocationTarget. ``proof_target`` overrides the signed
+    ``proof.invocationTarget`` (defaults to ``target``).
+    """
     base: dict[str, object] = {
         "@context": [
             "https://w3id.org/zcap/v1",
             "https://w3id.org/security/suites/ed25519-2020/v1",
         ],
         "id": "urn:uuid:invocation-1",
-        "type": "Invocation",
-        "capability": cap_id,
-        "invocationTarget": target,
     }
     proof_metadata: dict[str, object] = {
         "type": "Ed25519Signature2020",
@@ -92,9 +99,12 @@ def _make_invocation(
         "created": "2026-01-01T00:00:00Z",
         "proofPurpose": "capabilityInvocation",
         "capability": cap_id,
+        "invocationTarget": proof_target if proof_target is not None else target,
     }
     if capability_action is not None:
         proof_metadata["capabilityAction"] = capability_action
+    if capability_chain is not None:
+        proof_metadata["capabilityChain"] = capability_chain
     pv = make_proof_value(base, proof_metadata, invoker_key)  # type: ignore[arg-type]
     proof: dict[str, object] = {**proof_metadata, "proofValue": pv}
     return {**base, "proof": proof}
@@ -438,20 +448,20 @@ def _make_w3c_invocation(
     invoker_key: object,
     invoker_vm: str,
     *,
-    cap_id: str = "urn:delegated:cap",
+    cap_id: str | dict[str, object] = "urn:delegated:cap",
     target: str = "https://api.example.com/data/",
     capability_action: str | None = "read",
 ) -> dict[str, object]:
-    """Build an invocation signed with W3C URDNA2015."""
+    """Build an invocation signed with W3C URDNA2015 (proof over the target).
+
+    ``cap_id`` may be a string reference or an embedded full capability object.
+    """
     base: dict[str, object] = {
         "@context": [
             "https://w3id.org/zcap/v1",
             "https://w3id.org/security/suites/ed25519-2020/v1",
         ],
         "id": "urn:uuid:invocation-1",
-        "type": "Invocation",
-        "capability": cap_id,
-        "invocationTarget": target,
     }
     proof_metadata: dict[str, object] = {
         "type": "Ed25519Signature2020",
@@ -459,6 +469,7 @@ def _make_w3c_invocation(
         "created": "2026-01-01T00:00:00Z",
         "proofPurpose": "capabilityInvocation",
         "capability": cap_id,
+        "invocationTarget": target,
     }
     if capability_action is not None:
         proof_metadata["capabilityAction"] = capability_action
@@ -531,28 +542,11 @@ class TestEmbeddedCapability:
             actions=["read"],
         )
 
-        # Build invocation with embedded capability (dict instead of string)
-        inv_base: dict[str, object] = {
-            "@context": [
-                "https://w3id.org/zcap/v1",
-                "https://w3id.org/security/suites/ed25519-2020/v1",
-            ],
-            "id": "urn:uuid:invocation-1",
-            "type": "Invocation",
-            "capability": child_raw,  # embedded dict
-            "invocationTarget": "https://api.example.com/data/",
-        }
-        proof_metadata: dict[str, object] = {
-            "type": "Ed25519Signature2020",
-            "verificationMethod": bob.verification_method,
-            "created": "2026-01-01T00:00:00Z",
-            "proofPurpose": "capabilityInvocation",
-            "capability": str(child_raw["id"]),
-            "capabilityAction": "read",
-        }
-        pv = make_proof_value(inv_base, proof_metadata, bob.private_key)
-        proof: dict[str, object] = {**proof_metadata, "proofValue": pv}
-        inv_raw: dict[str, object] = {**inv_base, "proof": proof}
+        # Build invocation with the capability EMBEDDED in proof.capability
+        # (the digitalbazaar delegated-invocation shape).
+        inv_raw = _make_invocation(
+            bob.private_key, bob.verification_method, cap_id=child_raw
+        )
 
         inv = parser.parse_invocation(inv_raw)
 
@@ -577,29 +571,10 @@ class TestEmbeddedCapability:
         )
         child = parser.parse_capability(child_raw)
 
-        # Build invocation with embedded capability
-        inv_base: dict[str, object] = {
-            "@context": [
-                "https://w3id.org/zcap/v1",
-                "https://w3id.org/security/suites/ed25519-2020/v1",
-            ],
-            "id": "urn:uuid:invocation-1",
-            "type": "Invocation",
-            "capability": child_raw,  # embedded dict
-            "invocationTarget": "https://api.example.com/data/",
-        }
-        proof_metadata: dict[str, object] = {
-            "type": "Ed25519Signature2020",
-            "verificationMethod": bob.verification_method,
-            "created": "2026-01-01T00:00:00Z",
-            "proofPurpose": "capabilityInvocation",
-            "capability": child.id,
-            "capabilityAction": "read",
-        }
-        pv = make_proof_value(inv_base, proof_metadata, bob.private_key)
-        proof_dict: dict[str, object] = {**proof_metadata, "proofValue": pv}
-        inv_raw: dict[str, object] = {**inv_base, "proof": proof_dict}
-
+        # Build invocation with the capability embedded in proof.capability.
+        inv_raw = _make_invocation(
+            bob.private_key, bob.verification_method, cap_id=child_raw
+        )
         inv = parser.parse_invocation(inv_raw)
 
         verifier = ZcapVerifier()
@@ -621,28 +596,12 @@ class TestCapabilityChainInProof:
             actions=["read"],
         )
 
-        inv_base: dict[str, object] = {
-            "@context": [
-                "https://w3id.org/zcap/v1",
-                "https://w3id.org/security/suites/ed25519-2020/v1",
-            ],
-            "id": "urn:uuid:invocation-1",
-            "type": "Invocation",
-            "capability": str(child_raw["id"]),
-            "invocationTarget": "https://api.example.com/data/",
-        }
-        proof_metadata: dict[str, object] = {
-            "type": "Ed25519Signature2020",
-            "verificationMethod": bob.verification_method,
-            "created": "2026-01-01T00:00:00Z",
-            "proofPurpose": "capabilityInvocation",
-            "capability": str(child_raw["id"]),
-            "capabilityAction": "read",
-            "capabilityChain": ["urn:root:cap", child_raw],
-        }
-        pv = make_proof_value(inv_base, proof_metadata, bob.private_key)
-        proof_dict: dict[str, object] = {**proof_metadata, "proofValue": pv}
-        inv_raw: dict[str, object] = {**inv_base, "proof": proof_dict}
+        inv_raw = _make_invocation(
+            bob.private_key,
+            bob.verification_method,
+            cap_id=str(child_raw["id"]),
+            capability_chain=["urn:root:cap", child_raw],
+        )
 
         inv = parser.parse_invocation(inv_raw)
 
@@ -666,28 +625,12 @@ class TestCapabilityChainInProof:
         child = parser.parse_capability(child_raw)
 
         # Build invocation with capabilityChain containing string reference
-        inv_base: dict[str, object] = {
-            "@context": [
-                "https://w3id.org/zcap/v1",
-                "https://w3id.org/security/suites/ed25519-2020/v1",
-            ],
-            "id": "urn:uuid:invocation-1",
-            "type": "Invocation",
-            "capability": child.id,
-            "invocationTarget": "https://api.example.com/data/",
-        }
-        proof_metadata: dict[str, object] = {
-            "type": "Ed25519Signature2020",
-            "verificationMethod": bob.verification_method,
-            "created": "2026-01-01T00:00:00Z",
-            "proofPurpose": "capabilityInvocation",
-            "capability": child.id,
-            "capabilityAction": "read",
-            "capabilityChain": ["urn:root:cap", child_raw],
-        }
-        pv = make_proof_value(inv_base, proof_metadata, bob.private_key)
-        proof_dict: dict[str, object] = {**proof_metadata, "proofValue": pv}
-        inv_raw: dict[str, object] = {**inv_base, "proof": proof_dict}
+        inv_raw = _make_invocation(
+            bob.private_key,
+            bob.verification_method,
+            cap_id=child.id,
+            capability_chain=["urn:root:cap", child_raw],
+        )
 
         inv = parser.parse_invocation(inv_raw)
 
@@ -713,29 +656,15 @@ class TestCapabilityChainInProof:
         )
         child = parser.parse_capability(child_raw)
 
-        inv_base: dict[str, object] = {
-            "@context": [
-                "https://w3id.org/zcap/v1",
-                "https://w3id.org/security/suites/ed25519-2020/v1",
-            ],
-            "id": "urn:uuid:invocation-1",
-            "type": "Invocation",
-            "capability": child.id,
-            "invocationTarget": "https://api.example.com/data/",
-        }
-        proof_metadata: dict[str, object] = {
-            "type": "Ed25519Signature2020",
-            "verificationMethod": bob.verification_method,
-            "created": "2026-01-01T00:00:00Z",
-            "proofPurpose": "capabilityInvocation",
-            "capability": child.id,
-            "capabilityAction": "read",
-            # Root by reference (spec-compliant); parent embedded.
-            "capabilityChain": ["urn:root:cap", child_raw],
-        }
-        pv = make_proof_value(inv_base, proof_metadata, bob.private_key)
-        proof_dict: dict[str, object] = {**proof_metadata, "proofValue": pv}
-        inv = parser.parse_invocation({**inv_base, "proof": proof_dict})
+        # Root by reference (spec-compliant); parent embedded.
+        inv = parser.parse_invocation(
+            _make_invocation(
+                bob.private_key,
+                bob.verification_method,
+                cap_id=child.id,
+                capability_chain=["urn:root:cap", child_raw],
+            )
+        )
 
         # Trusted loader resolves the root id to the genuine root.
         def root_loader(cid: str) -> dict[str, object]:
@@ -756,27 +685,14 @@ class TestCapabilityChainInProof:
             actions=["read"],
         )
         child = parser.parse_capability(child_raw)
-        inv_base: dict[str, object] = {
-            "@context": [
-                "https://w3id.org/zcap/v1",
-                "https://w3id.org/security/suites/ed25519-2020/v1",
-            ],
-            "id": "urn:uuid:invocation-1",
-            "type": "Invocation",
-            "capability": child.id,
-            "invocationTarget": "https://api.example.com/data/",
-        }
-        proof_metadata: dict[str, object] = {
-            "type": "Ed25519Signature2020",
-            "verificationMethod": bob.verification_method,
-            "created": "2026-01-01T00:00:00Z",
-            "proofPurpose": "capabilityInvocation",
-            "capability": child.id,
-            "capabilityAction": "read",
-            "capabilityChain": [root_raw, child_raw],  # embedded root → rejected
-        }
-        pv = make_proof_value(inv_base, proof_metadata, bob.private_key)
-        inv = parser.parse_invocation({**inv_base, "proof": {**proof_metadata, "proofValue": pv}})
+        inv = parser.parse_invocation(
+            _make_invocation(
+                bob.private_key,
+                bob.verification_method,
+                cap_id=child.id,
+                capability_chain=[root_raw, child_raw],  # embedded root → rejected
+            )
+        )
         with pytest.raises(InvocationError, match="must be referenced by id"):
             ZcapVerifier().verify_invocation(inv, child)
 
@@ -797,28 +713,12 @@ class TestCapabilityChainInProof:
         child = parser.parse_capability(child_raw)
 
         # Spec-compliant capabilityChain: root as string reference, child as embedded
-        inv_base: dict[str, object] = {
-            "@context": [
-                "https://w3id.org/zcap/v1",
-                "https://w3id.org/security/suites/ed25519-2020/v1",
-            ],
-            "id": "urn:uuid:invocation-1",
-            "type": "Invocation",
-            "capability": child.id,
-            "invocationTarget": "https://api.example.com/data/",
-        }
-        proof_metadata: dict[str, object] = {
-            "type": "Ed25519Signature2020",
-            "verificationMethod": bob.verification_method,
-            "created": "2026-01-01T00:00:00Z",
-            "proofPurpose": "capabilityInvocation",
-            "capability": child.id,
-            "capabilityAction": "read",
-            "capabilityChain": ["urn:root:cap", child_raw],
-        }
-        pv = make_proof_value(inv_base, proof_metadata, bob.private_key)
-        proof_dict: dict[str, object] = {**proof_metadata, "proofValue": pv}
-        inv_raw: dict[str, object] = {**inv_base, "proof": proof_dict}
+        inv_raw = _make_invocation(
+            bob.private_key,
+            bob.verification_method,
+            cap_id=child.id,
+            capability_chain=["urn:root:cap", child_raw],
+        )
 
         inv = parser.parse_invocation(inv_raw)
 
@@ -845,28 +745,12 @@ class TestCapabilityChainInProof:
         )
         child = parser.parse_capability(child_raw)
 
-        inv_base: dict[str, object] = {
-            "@context": [
-                "https://w3id.org/zcap/v1",
-                "https://w3id.org/security/suites/ed25519-2020/v1",
-            ],
-            "id": "urn:uuid:invocation-1",
-            "type": "Invocation",
-            "capability": child.id,
-            "invocationTarget": "https://api.example.com/data/",
-        }
-        proof_metadata: dict[str, object] = {
-            "type": "Ed25519Signature2020",
-            "verificationMethod": bob.verification_method,
-            "created": "2026-01-01T00:00:00Z",
-            "proofPurpose": "capabilityInvocation",
-            "capability": child.id,
-            "capabilityAction": "read",
-            "capabilityChain": ["urn:unknown:cap", child_raw],
-        }
-        pv = make_proof_value(inv_base, proof_metadata, bob.private_key)
-        proof_dict: dict[str, object] = {**proof_metadata, "proofValue": pv}
-        inv_raw: dict[str, object] = {**inv_base, "proof": proof_dict}
+        inv_raw = _make_invocation(
+            bob.private_key,
+            bob.verification_method,
+            cap_id=child.id,
+            capability_chain=["urn:unknown:cap", child_raw],
+        )
 
         inv = parser.parse_invocation(inv_raw)
 
@@ -958,28 +842,13 @@ class TestChainTrustAnchor:
             controller_did=bob.did,
             actions=["read"],
         )
-        child = parser.parse_capability(child_raw)
+        parser.parse_capability(child_raw)
 
-        inv_base: dict[str, object] = {
-            "@context": [
-                "https://w3id.org/zcap/v1",
-                "https://w3id.org/security/suites/ed25519-2020/v1",
-            ],
-            "id": "urn:uuid:inv-embedded",
-            "type": "Invocation",
-            "capability": child_raw,  # embedded dict, no capabilityChain in proof
-            "invocationTarget": "https://api.example.com/data/",
-        }
-        proof_metadata: dict[str, object] = {
-            "type": "Ed25519Signature2020",
-            "verificationMethod": bob.verification_method,
-            "created": "2026-01-01T00:00:00Z",
-            "proofPurpose": "capabilityInvocation",
-            "capability": child.id,
-            "capabilityAction": "read",
-        }
-        pv = make_w3c_proof_value(inv_base, proof_metadata, bob.private_key)
-        inv = parser.parse_invocation({**inv_base, "proof": {**proof_metadata, "proofValue": pv}})
+        # Capability embedded in proof.capability, but NO capabilityChain in the
+        # proof → the verifier cannot anchor it to a trusted root.
+        inv = parser.parse_invocation(
+            _make_invocation(bob.private_key, bob.verification_method, cap_id=child_raw)
+        )
 
         with pytest.raises(InvocationError, match="requires a verifiable"):
             ZcapVerifier().verify_invocation(inv)  # capability=None → embedded delegated

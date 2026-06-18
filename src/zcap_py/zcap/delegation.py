@@ -16,6 +16,10 @@ from zcap_py.exceptions import (
     ZcapError,
 )
 from zcap_py.proof.ed25519_2020_w3c import verify_document_proof_w3c
+from zcap_py.zcap.relationships import (
+    CAPABILITY_DELEGATION,
+    did_key_relationship_authorizer,
+)
 from zcap_py.zcap.target_attenuation import (
     InvocationTargetAttenuator,
     PathPrefixAttenuator,
@@ -25,6 +29,7 @@ if TYPE_CHECKING:
     from collections.abc import Callable
 
     from zcap_py.zcap.models import Capability
+    from zcap_py.zcap.relationships import RelationshipAuthorizer
 
 
 def _controller_contains(controller: str | list[str], did: str) -> bool:
@@ -57,14 +62,18 @@ def _verify_delegation_link(
     allow_target_attenuation: bool = False,
     target_attenuator: InvocationTargetAttenuator | None = None,
     proof_verifier: Callable[[dict[str, object]], None] | None = None,
+    relationship_authorizer: RelationshipAuthorizer | None = None,
 ) -> None:
     """Verify a single delegation link from *parent* to *child*.
 
     Raises:
-        DelegationError: On structural violations.
+        DelegationError: On structural violations (including a proof whose
+            ``proofPurpose`` is not ``capabilityDelegation``).
         ActionAttenuationError: If child's actions exceed parent's.
         ExpiryAttenuationError: If child's expiry exceeds parent's.
         InvocationTargetError: If invocation target is invalid.
+        ProofError: If the signer's key is not authorized for the
+            ``capabilityDelegation`` relationship.
         SignatureVerificationError: If the cryptographic proof fails.
     """
     # Child must have a proof
@@ -72,6 +81,17 @@ def _verify_delegation_link(
         raise DelegationError(
             "Delegated capability is missing a proof",
             context={"child_id": child.id},
+        )
+
+    # #28: re-assert proofPurpose at VERIFY time (independent of the parser) so
+    # a pre-built model or wrong-purpose proof is caught here, not silently
+    # accepted. A delegation proof MUST exercise the capabilityDelegation
+    # relationship.
+    if child.proof.proof_purpose != CAPABILITY_DELEGATION:
+        raise DelegationError(
+            f"Delegation proof.proofPurpose must be '{CAPABILITY_DELEGATION}', "
+            f"got '{child.proof.proof_purpose}'",
+            context={"child_id": child.id, "proof_purpose": child.proof.proof_purpose},
         )
 
     # FR-DELEG-01: Signer matches parent controller
@@ -142,6 +162,13 @@ def _verify_delegation_link(
                 },
             )
 
+    # #28: verification-relationship authorization gate — confirm the signer's
+    # key is authorized by its controller for the capabilityDelegation
+    # relationship (trivially true for did:key; the seam for non-did:key methods).
+    (relationship_authorizer or did_key_relationship_authorizer)(
+        child.proof.verification_method, CAPABILITY_DELEGATION
+    )
+
     # FR-DELEG-06: Cryptographic proof verification (W3C URDNA2015 by default)
     (proof_verifier or verify_document_proof_w3c)(child.raw)
 
@@ -156,6 +183,7 @@ def verify_delegation_chain(
     allow_target_attenuation: bool = False,
     target_attenuator: InvocationTargetAttenuator | None = None,
     proof_verifier: Callable[[dict[str, object]], None] | None = None,
+    relationship_authorizer: RelationshipAuthorizer | None = None,
     max_chain_length: int = DEFAULT_MAX_CHAIN_LENGTH,
     clock: Callable[[], datetime] | None = None,
 ) -> None:
@@ -231,6 +259,7 @@ def verify_delegation_chain(
                 allow_target_attenuation=allow_target_attenuation,
                 target_attenuator=target_attenuator,
                 proof_verifier=proof_verifier,
+                relationship_authorizer=relationship_authorizer,
             )
             if child.allowed_action is not None:
                 declared = set(child.allowed_action)

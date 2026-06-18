@@ -52,7 +52,8 @@ class ZcapParser:
 
         Delegated capabilities (``parentCapability`` present) may include
         additional fields like ``type``, ``allowedAction``, ``expires``,
-        ``invoker``, ``caveat``, and ``proof``.
+        ``caveat``, and ``proof``. The legacy ``invoker`` field is not part of
+        the current spec and is ignored (controller-only identity).
 
         ``controller`` may be a single DID string or an array of DID strings.
 
@@ -81,7 +82,6 @@ class ZcapParser:
                 invocation_target=str(raw["invocationTarget"]),
                 allowed_action=None,
                 expires=None,
-                invoker=None,
                 raw=dict(raw),
             )
 
@@ -112,7 +112,6 @@ class ZcapParser:
             invocation_target=str(raw["invocationTarget"]),
             allowed_action=allowed_action,
             expires=expires,
-            invoker=str(raw["invoker"]) if raw.get("invoker") else None,
             caveat=_parse_caveat_list(raw.get("caveat")),
             proof=proof,
             raw=dict(raw),
@@ -121,54 +120,59 @@ class ZcapParser:
     def parse_invocation(self, raw: dict[str, object]) -> Invocation:
         """Parse and validate a raw invocation dict (FR-PARSE-02).
 
-        The ``capability`` field may be a string (capability ID) or an
-        embedded capability object.  When embedded, the object is parsed
-        via :meth:`parse_capability` and stored as ``embedded_capability``.
+        Per the current ZCAP-LD spec and ``@digitalbazaar/zcap``, an invocation
+        IS a ``capabilityInvocation`` Data-Integrity proof signed over the target
+        document — there is no bespoke ``type:"Invocation"`` wrapper and no
+        body-level ``capability``/``invocationTarget`` duplication. The invoked
+        ``capability``, ``invocationTarget``, and ``capabilityAction`` are carried
+        in the proof.
+
+        ``proof.capability`` is either a string id (the root-invocation shape) or
+        an embedded full capability object (the delegated-invocation shape, where
+        the embedded object carries its own ``capabilityChain``). When embedded,
+        the object is parsed via :meth:`parse_capability` and stored as
+        ``embedded_capability``.
+
+        The body ``id`` is optional (a digitalbazaar HTTP/target invocation may
+        omit it).
 
         Raises:
             ZcapParseError: If any required field is missing or invalid.
         """
         self._validate_context(raw)
-        self._require_str(raw, "id")
-        self._require_type(raw, "Invocation")
-        self._require_str(raw, "invocationTarget")
 
-        # capability — required, string or embedded object
-        cap_value = raw.get("capability")
-        embedded_capability: Capability | None = None
-        if isinstance(cap_value, dict):
-            cap_id_raw = cap_value.get("id")
-            if not isinstance(cap_id_raw, str) or not cap_id_raw.strip():
-                raise ZcapParseError(
-                    "Embedded capability must have a string 'id'",
-                    field="capability.id",
-                )
-            cap_id = cap_id_raw
-            embedded_capability = self.parse_capability(cap_value)
-        elif isinstance(cap_value, str) and cap_value.strip():
-            cap_id = cap_value
-        else:
-            raise ZcapParseError(
-                "Missing or invalid field 'capability'",
-                field="capability",
-            )
-
-        # FR-PARSE-06: proof is mandatory on Invocation documents
+        # FR-PARSE-06: a capabilityInvocation proof is mandatory.
         if "proof" not in raw:
             raise ZcapParseError("Missing required 'proof' field", field="proof")
-        proof = self._parse_proof(raw["proof"], "capabilityInvocation")
+        proof_raw = raw["proof"]
 
-        # ZCAP-LD spec: invocation proofs must carry a capability reference
+        # proof.capability may embed the full capability object (delegated
+        # invocation). Parse it before _parse_proof reduces it to its id.
+        embedded_capability: Capability | None = None
+        if isinstance(proof_raw, dict):
+            cap_field = proof_raw.get("capability")
+            if isinstance(cap_field, dict):
+                embedded_capability = self.parse_capability(cap_field)
+
+        proof = self._parse_proof(proof_raw, "capabilityInvocation")
+
+        # ZCAP-LD spec: invocation proofs MUST carry the invoked capability …
         if proof.capability is None:
             raise ZcapParseError(
                 "Invocation proof must include 'capability'",
                 field="proof.capability",
             )
+        # … and the invocationTarget the proof is signed over (interop +
+        # security: a benign body cannot mask a malicious signed target).
+        if proof.invocation_target is None:
+            raise ZcapParseError(
+                "Invocation proof must include 'invocationTarget'",
+                field="proof.invocationTarget",
+            )
 
+        body_id = raw.get("id")
         return Invocation(
-            id=str(raw["id"]),
-            capability=cap_id,
-            invocation_target=str(raw["invocationTarget"]),
+            id=str(body_id) if isinstance(body_id, str) and body_id.strip() else None,
             proof=proof,
             embedded_capability=embedded_capability,
             raw=dict(raw),
@@ -218,7 +222,15 @@ class ZcapParser:
 
     @staticmethod
     def _validate_context(d: dict[str, object]) -> None:
-        """Validate that ``@context`` is present and includes the ZCAP-LD URL."""
+        """Validate that ``@context`` is present and includes the ZCAP-LD URL.
+
+        This is the first call in both :meth:`parse_capability` and
+        :meth:`parse_invocation`, so it is also the single chokepoint that
+        confines a non-dict top-level document to the ``ZcapError`` hierarchy
+        (the from-dict API must never leak a raw ``AttributeError``).
+        """
+        if not isinstance(d, dict):
+            raise ZcapParseError("Expected JSON object", field="<document>")
         ctx = d.get("@context")
         if ctx is None:
             raise ZcapParseError(
@@ -238,15 +250,6 @@ class ZcapParser:
             f"'@context' must be or start with '{ZCAP_CONTEXT_URL}'",
             field="@context",
         )
-
-    @staticmethod
-    def _require_type(d: dict[str, object], expected: str) -> None:
-        t = d.get("type")
-        if t != expected:
-            raise ZcapParseError(
-                f"Expected type '{expected}', got '{t}'",
-                field="type",
-            )
 
     @staticmethod
     def _validate_optional_type(d: dict[str, object], expected: str) -> None:
@@ -447,15 +450,37 @@ class ZcapParser:
                     )
             capability_chain = tuple(chain_raw)
 
+        # capability — string id (root-invocation shape) or embedded full object
+        # (delegated-invocation shape); reduce either to the capability id string.
+        cap_field = proof.get("capability")
+        capability_id: str | None = None
+        if isinstance(cap_field, str) and cap_field.strip():
+            capability_id = cap_field
+        elif isinstance(cap_field, dict):
+            cid = cap_field.get("id")
+            if not isinstance(cid, str) or not cid.strip():
+                raise ZcapParseError(
+                    "Embedded proof.capability must have a string 'id'",
+                    field="proof.capability.id",
+                )
+            capability_id = cid
+
+        # invocationTarget — the target the proof is signed over (string).
+        inv_target = proof.get("invocationTarget")
+        invocation_target = (
+            inv_target if isinstance(inv_target, str) and inv_target.strip() else None
+        )
+
         return LinkedDataProof(
             type=str(ptype),
             verification_method=str(vm),
             created=str(created),
             proof_value=str(pv),
             proof_purpose=str(pp),
-            capability=str(proof["capability"]) if proof.get("capability") else None,
+            capability=capability_id,
             capability_action=(
                 str(proof["capabilityAction"]) if proof.get("capabilityAction") else None
             ),
+            invocation_target=invocation_target,
             capability_chain=capability_chain,
         )
